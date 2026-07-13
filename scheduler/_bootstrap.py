@@ -87,7 +87,7 @@ async def lifespan(app: FastAPI):
     yield
     
     # 停止定时任务
-    scheduler.stop()
+    await scheduler.stop()
     logger.info("定时任务管理器已停止")
 
     log_retention_sync_task.cancel()

@@ -26,10 +26,14 @@ class ProductMaterialService:
 
     async def create(self, user_id: int, data: dict) -> ProductMaterial:
         """创建素材"""
+        title = data.get("title")
+        description = data.get("description")
+        if not title or not description:
+            raise ValueError("标题(title)和描述(description)为必填字段")
         material = ProductMaterial(
             user_id=user_id,
-            title=data["title"],
-            description=data["description"],
+            title=title,
+            description=description,
             price=float(data["price"]),
             original_price=float(data["original_price"]) if data.get("original_price") else None,
             category=data.get("category"),

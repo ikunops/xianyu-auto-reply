@@ -793,6 +793,14 @@ async def deliver_order(request: DeliverOrderRequest):
                 detail=f"账号 {account_id} 未启动或不存在"
             )
         
+        if not getattr(xianyu_live, 'auto_delivery_handler', None):
+            return {
+                "success": False,
+                "code": 503,
+                "message": "自动发货处理器未就绪",
+                "data": None
+            }
+        
         # 获取 WebSocket 连接
         ws = xianyu_live.ws
         if not ws:

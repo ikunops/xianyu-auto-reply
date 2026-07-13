@@ -221,8 +221,6 @@ class XianyuPublisher:
             if not (reuse_browser and self.is_initialized and self.current_cookie == cookie_data["cookie"]):
                 await self.set_cookies(cookie_data["cookie"])
 
-            await self.set_cookies(cookie_data["cookie"])
-
             logger.info("\n[步骤1] 🌐 先访问闲鱼首页，触发Cookie初始化...")
             await self.page.goto("https://www.goofish.com", wait_until="networkidle", timeout=30000)
             await asyncio.sleep(1)

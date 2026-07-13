@@ -109,7 +109,7 @@ class FetchItemsTaskService:
                     )
 
                 # 账号间间隔2秒，避免请求过于密集
-                if account is not accounts[-1]:
+                if account != accounts[-1]:
                     await asyncio.sleep(2)
 
             # 3. 记录执行结果

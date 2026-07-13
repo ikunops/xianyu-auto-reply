@@ -173,7 +173,7 @@ class SchedulerService:
         self._auto_order_task_handle = asyncio.create_task(self._run_auto_order_loop())
         logger.info("[定时任务调度] 已启动")
     
-    def stop(self) -> None:
+    async def stop(self) -> None:
         """停止定时任务"""
         if not self._running:
             logger.warning("[定时任务调度] 任务未在运行")
@@ -182,63 +182,143 @@ class SchedulerService:
         self._running = False
         if self._redelivery_task_handle:
             self._redelivery_task_handle.cancel()
+            try:
+                await self._redelivery_task_handle
+            except asyncio.CancelledError:
+                pass
             self._redelivery_task_handle = None
         if self._rate_task_handle:
             self._rate_task_handle.cancel()
+            try:
+                await self._rate_task_handle
+            except asyncio.CancelledError:
+                pass
             self._rate_task_handle = None
         if self._polish_task_handle:
             self._polish_task_handle.cancel()
+            try:
+                await self._polish_task_handle
+            except asyncio.CancelledError:
+                pass
             self._polish_task_handle = None
         if self._day_switch_task_handle:
             self._day_switch_task_handle.cancel()
+            try:
+                await self._day_switch_task_handle
+            except asyncio.CancelledError:
+                pass
             self._day_switch_task_handle = None
         if self._cleanup_browser_data_task_handle:
             self._cleanup_browser_data_task_handle.cancel()
+            try:
+                await self._cleanup_browser_data_task_handle
+            except asyncio.CancelledError:
+                pass
             self._cleanup_browser_data_task_handle = None
         if self._fetch_orders_task_handle:
             self._fetch_orders_task_handle.cancel()
+            try:
+                await self._fetch_orders_task_handle
+            except asyncio.CancelledError:
+                pass
             self._fetch_orders_task_handle = None
         if self._fetch_pending_orders_task_handle:
             self._fetch_pending_orders_task_handle.cancel()
+            try:
+                await self._fetch_pending_orders_task_handle
+            except asyncio.CancelledError:
+                pass
             self._fetch_pending_orders_task_handle = None
         if self._fetch_refund_orders_task_handle:
             self._fetch_refund_orders_task_handle.cancel()
+            try:
+                await self._fetch_refund_orders_task_handle
+            except asyncio.CancelledError:
+                pass
             self._fetch_refund_orders_task_handle = None
         if self._fetch_items_task_handle:
             self._fetch_items_task_handle.cancel()
+            try:
+                await self._fetch_items_task_handle
+            except asyncio.CancelledError:
+                pass
             self._fetch_items_task_handle = None
         if self._login_renew_task_handle:
             self._login_renew_task_handle.cancel()
+            try:
+                await self._login_renew_task_handle
+            except asyncio.CancelledError:
+                pass
             self._login_renew_task_handle = None
         if self._cookies_refresh_task_handle:
             self._cookies_refresh_task_handle.cancel()
+            try:
+                await self._cookies_refresh_task_handle
+            except asyncio.CancelledError:
+                pass
             self._cookies_refresh_task_handle = None
         if self._api_cookie_renew_task_handle:
             self._api_cookie_renew_task_handle.cancel()
+            try:
+                await self._api_cookie_renew_task_handle
+            except asyncio.CancelledError:
+                pass
             self._api_cookie_renew_task_handle = None
         if self._close_notice_task_handle:
             self._close_notice_task_handle.cancel()
+            try:
+                await self._close_notice_task_handle
+            except asyncio.CancelledError:
+                pass
             self._close_notice_task_handle = None
         if self._red_flower_task_handle:
             self._red_flower_task_handle.cancel()
+            try:
+                await self._red_flower_task_handle
+            except asyncio.CancelledError:
+                pass
             self._red_flower_task_handle = None
         if self._db_backup_task_handle:
             self._db_backup_task_handle.cancel()
+            try:
+                await self._db_backup_task_handle
+            except asyncio.CancelledError:
+                pass
             self._db_backup_task_handle = None
         if self._delivery_timeout_task_handle:
             self._delivery_timeout_task_handle.cancel()
+            try:
+                await self._delivery_timeout_task_handle
+            except asyncio.CancelledError:
+                pass
             self._delivery_timeout_task_handle = None
         if self._listing_monitor_task_handle:
             self._listing_monitor_task_handle.cancel()
+            try:
+                await self._listing_monitor_task_handle
+            except asyncio.CancelledError:
+                pass
             self._listing_monitor_task_handle = None
         if self._seller_fill_task_handle:
             self._seller_fill_task_handle.cancel()
+            try:
+                await self._seller_fill_task_handle
+            except asyncio.CancelledError:
+                pass
             self._seller_fill_task_handle = None
         if self._dm_send_task_handle:
             self._dm_send_task_handle.cancel()
+            try:
+                await self._dm_send_task_handle
+            except asyncio.CancelledError:
+                pass
             self._dm_send_task_handle = None
         if self._auto_order_task_handle:
             self._auto_order_task_handle.cancel()
+            try:
+                await self._auto_order_task_handle
+            except asyncio.CancelledError:
+                pass
             self._auto_order_task_handle = None
         logger.info("[定时任务调度] 已停止")
     
