@@ -267,3 +267,5 @@ slider_test/
 # ------------------------------------------
 AGENTS.md
 .codex/
+
+nuitka-crash-report.xml
