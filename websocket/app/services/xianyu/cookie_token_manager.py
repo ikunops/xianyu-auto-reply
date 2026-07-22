@@ -935,6 +935,14 @@ class CookieTokenManager:
                             self.cookies_str = '; '.join([f"{k}={v}" for k, v in self.cookies.items()])
                             await self.update_config_cookies()
                             logger.warning("已更新Cookie到数据库")
+                            
+                            # Cookie 已变更，同步到 HTTP session，避免后续请求使用过期 Cookie
+                            try:
+                                if getattr(self.parent, 'session', None):
+                                    await self.parent.close_session()
+                                await self.parent.create_session()
+                            except Exception as session_e:
+                                logger.warning(f"【{self.cookie_id}】同步Cookie到Session失败: {self._safe_str(session_e)}")
 
                     if isinstance(res_json, dict):
                         ret_value = res_json.get('ret', [])

@@ -48,6 +48,9 @@ class ConnectionManager:
         self.last_successful_connection = 0
         self.last_state_change_time = time.time()
         
+        # WebSocket认证状态
+        self.authenticated = False
+        
         # 短连接频繁断开检测（连接维持少于30秒视为短连接）
         self.short_disconnect_times: list = []  # 记录短连接断开的时间戳
         self.short_connection_threshold = 30  # 短连接阈值（秒）

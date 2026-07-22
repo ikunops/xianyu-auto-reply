@@ -565,6 +565,9 @@ class XianyuAsync:
         
         Args:
             ws: WebSocket连接对象
+            
+        Returns:
+            bool: 认证是否成功
         """
         # 获取token
         if not self.current_token:
@@ -573,9 +576,10 @@ class XianyuAsync:
         
         if not self.current_token:
             logger.warning(f"【{self.cookie_id}】无法获取有效token")
-            raise Exception("Token获取失败")
+            return False
         
         # 发送注册消息
+        reg_mid = generate_mid()
         msg = {
             "lwp": "/reg",
             "headers": {
@@ -587,11 +591,62 @@ class XianyuAsync:
                 "wv": "im:3,au:3,sy:6",
                 "sync": "0,0;0;0;",
                 "did": self.device_id,
-                "mid": generate_mid()
+                "mid": reg_mid
             }
         }
         await ws.send(json.dumps(msg))
-        await asyncio.sleep(1)
+        
+        # 等待服务端对 /reg 的认证响应，支持夹杂其他消息并增加总超时
+        deadline = time.time() + 10
+        while True:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                logger.error(f"【{self.cookie_id}】/reg 注册认证响应超时")
+                return False
+            try:
+                message = await asyncio.wait_for(ws.recv(), timeout=min(remaining, 5))
+            except asyncio.TimeoutError:
+                continue
+            except Exception as e:
+                logger.error(f"【{self.cookie_id}】/reg 注册认证处理异常: {e}")
+                return False
+            
+            try:
+                message_data = json.loads(message)
+            except Exception:
+                continue
+            
+            headers = message_data.get("headers") or {}
+            
+            # 忽略与本次注册无关的消息
+            if headers.get("mid") != reg_mid:
+                continue
+            
+            ret_value = message_data.get("ret", [])
+            ret_str = json.dumps(ret_value, ensure_ascii=False) if ret_value else ""
+            
+            if "SUCCESS::调用成功" in ret_str or "SUCCESS" in ret_str:
+                logger.info(f"【{self.cookie_id}】/reg 注册认证成功")
+                break
+            
+            if any(keyword in ret_str for keyword in [
+                "FAIL_SYS_TOKEN",
+                "FAIL_SYS_SESSION",
+                "FAIL_SYS_USER_VALIDATE",
+                "认证失败",
+                "token无效",
+                "token过期",
+            ]):
+                logger.error(
+                    f"【{self.cookie_id}】/reg 注册认证失败: {ret_str[:500]}"
+                )
+                return False
+            
+            # 其他响应视为成功，继续后续初始化
+            logger.info(
+                f"【{self.cookie_id}】/reg 收到非标准但可接受的响应: {ret_str[:200]}"
+            )
+            break
         
         # 发送同步状态消息
         current_time = int(time.time() * 1000)
@@ -613,6 +668,8 @@ class XianyuAsync:
         }
         await ws.send(json.dumps(msg))
         logger.info(f'【{self.cookie_id}】连接注册完成')
+        self.connection_manager.authenticated = True
+        return True
     
     def _create_tracked_task(self, coro):
         """创建并追踪后台任务，确保异常不会被静默忽略"""
@@ -2581,7 +2638,58 @@ class XianyuAsync:
                         
                         try:
                             # 初始化连接
-                            await self.init(websocket)
+                            init_ok = await self.init(websocket)
+                            if not init_ok:
+                                logger.error(f"【{self.cookie_id}】WebSocket初始化失败：认证未通过")
+                                self.connection_manager.set_connection_state(
+                                    ConnectionState.FAILED,
+                                    "认证失败"
+                                )
+                                self.connection_manager.connection_failures += 1
+                                # 认证失败通常意味着 token 无效，清空内存 token 以便下次重试时重新获取
+                                self.current_token = None
+                                if (
+                                    self.connection_manager.connection_failures
+                                    >= self.connection_manager.max_connection_failures
+                                ):
+                                    logger.error(
+                                        f"【{self.cookie_id}】认证相关连续失败"
+                                        f"{self.connection_manager.connection_failures}次"
+                                    )
+                                    try:
+                                        if self._cookie_token_manager:
+                                            result = (
+                                                await self._cookie_token_manager
+                                                .try_password_login_refresh("认证失败5次")
+                                            )
+                                            if result is True:
+                                                logger.info(
+                                                    f"【{self.cookie_id}】密码登录成功，重置失败计数"
+                                                )
+                                                self.connection_manager.connection_failures = 0
+                                                self.connection_manager.network_failures = 0
+                                                continue
+                                            elif result == "no_credentials":
+                                                logger.warning(
+                                                    f"【{self.cookie_id}】未配置密码，无法自动登录"
+                                                )
+                                            elif result == "skipped_cooldown":
+                                                logger.warning(
+                                                    f"【{self.cookie_id}】密码登录冷却期内，跳过本次刷新"
+                                                )
+                                            else:
+                                                logger.error(
+                                                    f"【{self.cookie_id}】密码登录失败"
+                                                )
+                                        else:
+                                            logger.warning(
+                                                f"【{self.cookie_id}】CookieTokenManager未初始化"
+                                            )
+                                    except Exception as e:
+                                        logger.error(f"【{self.cookie_id}】密码登录异常: {e}")
+                                    break
+                                continue
+                            
                             logger.info(f"【{self.cookie_id}】WebSocket初始化完成!")
                             
                             # 更新连接状态
