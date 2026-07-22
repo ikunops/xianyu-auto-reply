@@ -8,6 +8,10 @@ echo   XianyuAutoReply - One-Click Build
 echo ============================================
 echo.
 
+REM --- Add Windows Defender exclusion for build dirs (avoids EXE lock) ---
+powershell -Command "Add-MpPreference -ExclusionPath '%cd%\build_output' -ErrorAction SilentlyContinue; Add-MpPreference -ExclusionPath '%cd%\release' -ErrorAction SilentlyContinue" 2>nul
+echo.
+
 REM --- Ask whether to skip frontend build ---
 set SKIP_FRONTEND=0
 choice /C YN /M "Skip frontend build (Y=skip, N=rebuild)"
@@ -55,6 +59,10 @@ if exist "release" (
 )
 mkdir release 2>nul
 echo        Done.
+echo        Clearing Playwright cache...
+if exist "%LOCALAPPDATA%\ms-playwright" rmdir /s /q "%LOCALAPPDATA%\ms-playwright"
+pip cache purge 2>nul
+echo        Done.
 
 if %SKIP_FRONTEND% equ 1 goto :skip_frontend
 
@@ -89,6 +97,20 @@ if not exist "frontend\dist\index.html" (
 )
 
 :after_frontend
+
+REM --- Temporarily pause Tencent PC Manager RTP to prevent EXE lock ---
+set AV_STOPPED=0
+sc query QQPCRTP | find "RUNNING" >nul 2>&1
+if not errorlevel 1 (
+    echo [INFO] Pausing Tencent PC Manager RTP for build...
+    net stop QQPCRTP >nul 2>&1
+    if not errorlevel 1 (
+        set AV_STOPPED=1
+        echo [INFO] RTP paused.
+    ) else (
+        echo [WARN] Cannot stop QQPCRTP. Run as Administrator or add build_output to Trust List manually.
+    )
+)
 
 echo [3/6] Nuitka compiling launcher (may take several minutes)...
 python -m nuitka ^
@@ -168,6 +190,12 @@ if errorlevel 1 (
     goto :end
 )
 
+REM --- Restart Tencent PC Manager RTP ---
+if "%AV_STOPPED%"=="1" (
+    net start QQPCRTP >nul 2>&1
+    echo [INFO] Tencent PC Manager RTP restarted.
+)
+
 echo [4/6] Copying project files to dist...
 set DIST_DIR=build_output\main.dist
 
@@ -217,6 +245,7 @@ set "PACKAGED_BROWSER_DIR=%DIST_DIR%\ms-playwright"
 mkdir "%PACKAGED_BROWSER_DIR%" 2>nul
 set "PLAYWRIGHT_BROWSERS_PATH=%PACKAGED_BROWSER_DIR%"
 echo [INFO] Installing Chromium into package dir...
+set "PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright/"
 python -m playwright install chromium
 if errorlevel 1 (
     echo [ERROR] Failed to bundle Chromium browser.
@@ -317,6 +346,10 @@ echo   4. release\%ZIP_NAME% can be uploaded to update server
 echo.
 
 :end
+REM --- Ensure AV is restarted even on error exit ---
+if "%AV_STOPPED%"=="1" (
+    net start QQPCRTP >nul 2>&1
+)
 echo.
 echo Press any key to exit...
 pause >nul
