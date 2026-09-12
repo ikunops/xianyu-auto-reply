@@ -17,7 +17,7 @@ from launcher.gui_theme import COLORS
 from launcher.version import CURRENT_VERSION
 
 # 远程二维码图片URL前缀
-_QRCODE_URL_PREFIX = "https://xy.zhinianboke.com/static/qrcode/"
+_QRCODE_URL_PREFIX = ""  # 远程二维码下载已禁用
 
 # 二维码配置：(文件名, 显示名称)
 _QRCODE_ITEMS = [

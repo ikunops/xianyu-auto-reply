@@ -267,7 +267,7 @@ def _render_status_content(app):
     online_frame.pack(fill=tk.X, padx=20, pady=(8, 0))
     tk.Label(online_frame, text="🌐 在线版本：", font=("微软雅黑", 10),
              fg=COLORS["text"], bg="#EFF6FF").pack(side=tk.LEFT)
-    online_url = "https://xy.zhinianboke.com"
+    online_url = ""
     online_lbl = tk.Label(online_frame, text=online_url, font=("Consolas", 10, "underline"),
                           fg=COLORS["primary"], bg="#EFF6FF", cursor="hand2")
     online_lbl.pack(side=tk.LEFT)

@@ -20,7 +20,7 @@ from launcher.gui_theme import COLORS
 
 
 # 远程服务器API地址（公开接口，无需登录）
-_SERVER_URL = "https://xy.zhinianboke.com"
+_SERVER_URL = ""  # 远程官方内容(广告/公告)拉取已禁用
 
 # 轮播间隔（毫秒）
 _CAROUSEL_INTERVAL = 4000

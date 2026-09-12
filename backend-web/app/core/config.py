@@ -73,9 +73,9 @@ class BackendWebConfig(BaseConfig):
     auto_start_crawl_jobs: bool = Field(default=True, alias="AUTO_START_CRAWL_JOBS")
 
     # 卡券对接（分销卡券）上游服务基址：用于「分销卡券」页面通过上游卡券系统提货
-    # 默认指向生产环境上游服务，可通过环境变量 CARD_DOCK_BASE_URL 覆盖（禁止写死 localhost）
+    # 默认不指向任何上游，需要对接时通过环境变量 CARD_DOCK_BASE_URL 显式配置
     card_dock_base_url: str = Field(
-        default="http://backend.zhinianboke.com",
+        default="",
         alias="CARD_DOCK_BASE_URL",
     )
 
@@ -84,31 +84,6 @@ class BackendWebConfig(BaseConfig):
     external_api_key: str = Field(
         default="",
         alias="EXTERNAL_API_KEY",
-    )
-
-    # 远程官方服务基址：仪表盘广告、系统公告等内容支持「本地 + 远程官方」合并展示（与桌面版同源）
-    # 默认指向官方服务器，可通过环境变量 REMOTE_OFFICIAL_BASE_URL 覆盖（禁止写死 localhost）
-    remote_official_base_url: str = Field(
-        default="https://xy.zhinianboke.com",
-        alias="REMOTE_OFFICIAL_BASE_URL",
-    )
-
-    # 是否启用远程官方广告合并展示（官方服务器自身部署时可设为 False，避免重复展示自己的广告）
-    enable_remote_ads: bool = Field(
-        default=True,
-        alias="ENABLE_REMOTE_ADS",
-    )
-
-    # 是否启用远程官方公告合并展示（官方服务器自身部署时可设为 False，避免重复展示自己的公告）
-    enable_remote_announcements: bool = Field(
-        default=True,
-        alias="ENABLE_REMOTE_ANNOUNCEMENTS",
-    )
-
-    # 是否启用远程官方弹窗公告合并展示（官方服务器自身部署时可设为 False，避免重复展示自己的弹窗公告）
-    enable_remote_popup_announcements: bool = Field(
-        default=True,
-        alias="ENABLE_REMOTE_POPUP_ANNOUNCEMENTS",
     )
 
     @computed_field(return_type=list[str])

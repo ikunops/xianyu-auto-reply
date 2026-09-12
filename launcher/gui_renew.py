@@ -164,8 +164,8 @@ def render_renew_page(app):
              command=_do_renew).pack(side=tk.LEFT, padx=(0, 12))
 
     def _open_renew_page():
-        """在浏览器中打开获取续期码页面"""
-        webbrowser.open("https://xy.zhinianboke.com/renew-activation")
+        """续期码页面跳转已禁用"""
+        pass
 
     tk.Button(btn_frame, text="获取续期码", font=("微软雅黑", 9),
              fg="#ffffff", bg=COLORS["success"],

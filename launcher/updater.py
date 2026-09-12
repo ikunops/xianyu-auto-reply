@@ -28,8 +28,8 @@ from pathlib import Path
 
 from launcher.version import CURRENT_VERSION
 
-# 更新服务器地址（从 data/update_config.json 读取）
-_DEFAULT_UPDATE_URL = "https://xy-update.zhinianboke.com"
+# 更新服务器地址（从 data/update_config.json 读取；默认未配置即禁用远程检查）
+_DEFAULT_UPDATE_URL = ""
 
 
 def _get_update_url() -> str:
@@ -98,6 +98,10 @@ def check_update() -> dict:
     }
 
     update_url = _get_update_url()
+    if not update_url:
+        # 未配置更新服务器：视为无更新，不做远程请求
+        return result
+
     version_url = f"{update_url}/version.json"
 
     try:
