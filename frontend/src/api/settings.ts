@@ -1,7 +1,6 @@
 import { get, post, put } from '@/utils/request'
 import type {
   ApiResponse,
-  AuthFooterAdSettings,
   DisclaimerSettings,
   LoginBrandingSettings,
   SystemSettings,
@@ -36,10 +35,6 @@ const DEFAULT_LOGIN_BRANDING_SETTINGS: LoginBrandingSettings = {
   'login.system_description': '自动回复、智能客服、订单管理、数据分析，一站式解决闲鱼运营难题',
 }
 
-const DEFAULT_AUTH_FOOTER_AD_SETTINGS: AuthFooterAdSettings = {
-  'auth.footer_ad_html': '© 2026 划算云服务器 ·<a href="http://www.hsykj.com" target="_BLANK">www.hsykj.com</a>',
-}
-
 const DISCLAIMER_SETTING_KEYS: Array<keyof DisclaimerSettings> = [
   'disclaimer.title',
   'disclaimer.content',
@@ -52,10 +47,6 @@ const LOGIN_BRANDING_SETTING_KEYS: Array<keyof LoginBrandingSettings> = [
   'login.system_name',
   'login.system_title',
   'login.system_description',
-]
-
-const AUTH_FOOTER_AD_SETTING_KEYS: Array<keyof AuthFooterAdSettings> = [
-  'auth.footer_ad_html',
 ]
 
 const BOOLEAN_SYSTEM_SETTING_KEYS = ['registration_enabled', 'show_default_login_info', 'login_captcha_enabled', 'smtp_use_tls', 'smtp_use_ssl', 'runtime.is_exe_mode', 'account.face_verify_timeout_disable', 'proxy.enabled']
@@ -167,30 +158,6 @@ export const updateLoginBrandingSettings = async (settings?: Partial<SystemSetti
     dispatchLoginBrandingUpdated(settings)
   }
   return response
-}
-
-export const getDefaultAuthFooterAdSettings = (): AuthFooterAdSettings => ({ ...DEFAULT_AUTH_FOOTER_AD_SETTINGS })
-
-export const normalizeAuthFooterAdSettings = (settings?: Partial<SystemSettings> | null): AuthFooterAdSettings => {
-  const footerAdHtml = settings?.['auth.footer_ad_html']
-
-  return {
-    'auth.footer_ad_html': typeof footerAdHtml === 'string' && footerAdHtml.trim()
-      ? footerAdHtml
-      : DEFAULT_AUTH_FOOTER_AD_SETTINGS['auth.footer_ad_html'],
-  }
-}
-
-export const buildAuthFooterAdSettingsPayload = (settings?: Partial<SystemSettings> | null): AuthFooterAdSettings => {
-  const normalized = normalizeAuthFooterAdSettings(settings)
-  return AUTH_FOOTER_AD_SETTING_KEYS.reduce((payload, key) => {
-    payload[key] = normalized[key]
-    return payload
-  }, {} as AuthFooterAdSettings)
-}
-
-export const updateAuthFooterAdSettings = async (settings?: Partial<SystemSettings> | null): Promise<ApiResponse> => {
-  return updateSystemSettings(buildAuthFooterAdSettingsPayload(settings) as Partial<SystemSettings>)
 }
 
 export const buildThemeAppearanceSettingsPayload = (settings?: Partial<SystemSettings> | null): ThemeAppearanceSettings => {
@@ -493,22 +460,3 @@ export const resetSecretKey = async (): Promise<ApiResponse<{ secret_key: string
   return post(`${USERS_PREFIX}/secret-key/reset`)
 }
 
-
-// ========== 群二维码管理 ==========
-
-// 二维码类型
-type QrcodeType = 'wechat' | 'qq' | 'wechat_official' | 'telegram' | 'reward'
-
-// 上传群二维码（管理员）
-export const uploadQrcode = async (type: QrcodeType, file: File): Promise<ApiResponse & { data?: { image_url: string } }> => {
-  const formData = new FormData()
-  formData.append('image', file)
-  return post(`/api/v1/qrcode/${type}`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-  })
-}
-
-// 获取群二维码路径
-export const getQrcodeUrl = async (type: QrcodeType): Promise<{ success: boolean; data?: { image_url: string } }> => {
-  return get(`/api/v1/qrcode/${type}`)
-}

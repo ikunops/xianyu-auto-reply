@@ -1,14 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Navigate } from 'react-router-dom'
-import { Settings as SettingsIcon, Save, Mail, RefreshCw, Eye, EyeOff, Copy, Upload, MessageCircle, Users, Percent, CreditCard, Megaphone, Heart, Globe, CalendarClock } from 'lucide-react'
+import { Settings as SettingsIcon, Save, Mail, RefreshCw, Eye, EyeOff, Copy, CreditCard, Megaphone, Percent, Globe, CalendarClock } from 'lucide-react'
 import {
   buildHiddenMenuSettingsPayload,
   getHiddenMenuKeysFromSettings,
   getSystemSettings,
-  normalizeAuthFooterAdSettings,
   normalizeDisclaimerSettings,
   normalizeLoginBrandingSettings,
-  updateAuthFooterAdSettings,
   updateSystemSettings,
   updateDisclaimerSettings,
   updateLoginBrandingSettings,
@@ -17,8 +15,6 @@ import {
   updateThemeAppearanceSettings,
   updateThemeFontSettings,
   testEmailSend,
-  uploadQrcode,
-  getQrcodeUrl,
 } from '@/api/settings'
 import { useUIStore } from '@/store/uiStore'
 import { useAuthStore } from '@/store/authStore'
@@ -28,7 +24,6 @@ import { copyToClipboard } from '@/utils/clipboard'
 import { getExeForcedHiddenMenuKeys } from '@/config/navigation'
 import { applyThemeSettings, normalizeThemeAppearanceSettings, normalizeThemeFontSettings } from '@/utils/theme'
 import { DisclaimerSettingsCard } from './DisclaimerSettingsCard'
-import { AuthFooterAdSettingsCard } from './AuthFooterAdSettingsCard'
 import { LoginBrandingSettingsCard } from './LoginBrandingSettingsCard'
 import { MenuVisibilitySettings } from './MenuVisibilitySettings'
 import { ThemeAppearanceSettingsCard } from './ThemeAppearanceSettingsCard'
@@ -36,7 +31,6 @@ import { ThemeFontSettingsCard } from './ThemeFontSettingsCard'
 import { ServiceRestartCard } from './ServiceRestartCard'
 import { useMenuVisibilityStore } from '@/store/menuVisibilityStore'
 import type {
-  AuthFooterAdSettings,
   DisclaimerSettings,
   LoginBrandingSettings,
   SystemSettings,
@@ -54,7 +48,6 @@ export function Settings() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [loginBrandingSaving, setLoginBrandingSaving] = useState(false)
-  const [authFooterAdSaving, setAuthFooterAdSaving] = useState(false)
   const [disclaimerSaving, setDisclaimerSaving] = useState(false)
   const [hiddenMenuSaving, setHiddenMenuSaving] = useState(false)
   const [themeAppearanceSaving, setThemeAppearanceSaving] = useState(false)
@@ -73,29 +66,11 @@ export function Settings() {
   const [showAlipayPrivateKey, setShowAlipayPrivateKey] = useState(false)
   const [showAlipayPublicKey, setShowAlipayPublicKey] = useState(false)
 
-  // 群二维码状态
-  const [wechatQrcode, setWechatQrcode] = useState<string>('')
-  const [qqQrcode, setQqQrcode] = useState<string>('')
-  const [wechatOfficialQrcode, setWechatOfficialQrcode] = useState<string>('')
-  const [telegramQrcode, setTelegramQrcode] = useState<string>('')
-  const [rewardQrcode, setRewardQrcode] = useState<string>('')
-  const [uploadingWechat, setUploadingWechat] = useState(false)
-  const [uploadingQq, setUploadingQq] = useState(false)
-  const [uploadingWechatOfficial, setUploadingWechatOfficial] = useState(false)
-  const [uploadingTelegram, setUploadingTelegram] = useState(false)
-  const [uploadingReward, setUploadingReward] = useState(false)
-  const wechatFileRef = useRef<HTMLInputElement>(null)
-  const qqFileRef = useRef<HTMLInputElement>(null)
-  const wechatOfficialFileRef = useRef<HTMLInputElement>(null)
-  const telegramFileRef = useRef<HTMLInputElement>(null)
-  const rewardFileRef = useRef<HTMLInputElement>(null)
-
   // 测试邮件弹窗状态
   const [showTestEmailModal, setShowTestEmailModal] = useState(false)
   const [testEmail, setTestEmail] = useState('')
   const [sendingTestEmail, setSendingTestEmail] = useState(false)
   const loginBrandingSettings = normalizeLoginBrandingSettings(settings)
-  const authFooterAdSettings = normalizeAuthFooterAdSettings(settings)
   const disclaimerSettings = normalizeDisclaimerSettings(settings)
   const themeAppearanceSettings = normalizeThemeAppearanceSettings(settings)
   const themeFontSettings = normalizeThemeFontSettings(settings)
@@ -110,29 +85,6 @@ export function Settings() {
         setSettings(result.data)
         setIsExeMode(Boolean(result.data['runtime.is_exe_mode']))
         setHiddenMenuKeys(getHiddenMenuKeysFromSettings(result.data))
-      }
-      // 加载群二维码
-      const [wechatRes, qqRes, wechatOfficialRes, telegramRes, rewardRes] = await Promise.all([
-        getQrcodeUrl('wechat'),
-        getQrcodeUrl('qq'),
-        getQrcodeUrl('wechat_official'),
-        getQrcodeUrl('telegram'),
-        getQrcodeUrl('reward')
-      ])
-      if (wechatRes.success && wechatRes.data?.image_url) {
-        setWechatQrcode(wechatRes.data.image_url)
-      }
-      if (qqRes.success && qqRes.data?.image_url) {
-        setQqQrcode(qqRes.data.image_url)
-      }
-      if (wechatOfficialRes.success && wechatOfficialRes.data?.image_url) {
-        setWechatOfficialQrcode(wechatOfficialRes.data.image_url)
-      }
-      if (telegramRes.success && telegramRes.data?.image_url) {
-        setTelegramQrcode(telegramRes.data.image_url)
-      }
-      if (rewardRes.success && rewardRes.data?.image_url) {
-        setRewardQrcode(rewardRes.data.image_url)
       }
     } catch (error) {
       addToast({ type: 'error', message: getApiErrorMessage(error, '加载系统设置失败') })
@@ -193,33 +145,6 @@ export function Settings() {
       addToast({ type: 'error', message: getApiErrorMessage(error, '登录品牌设置保存失败') })
     } finally {
       setLoginBrandingSaving(false)
-    }
-  }
-
-  const handleAuthFooterAdChange = (key: keyof AuthFooterAdSettings, value: string) => {
-    setSettings((current) => ({
-      ...(current ?? {}),
-      [key]: value,
-    }))
-  }
-
-  const handleAuthFooterAdSave = async () => {
-    if (!settings) {
-      return
-    }
-
-    try {
-      setAuthFooterAdSaving(true)
-      const result = await updateAuthFooterAdSettings(settings)
-      if (result.success) {
-        addToast({ type: 'success', message: result.message || '底部广告设置保存成功' })
-      } else {
-        addToast({ type: 'error', message: result.message || '底部广告设置保存失败' })
-      }
-    } catch (error) {
-      addToast({ type: 'error', message: getApiErrorMessage(error, '底部广告设置保存失败') })
-    } finally {
-      setAuthFooterAdSaving(false)
     }
   }
 
@@ -459,111 +384,6 @@ export function Settings() {
     }
   }
 
-  // 上传微信群二维码
-  const handleUploadWechatQrcode = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    try {
-      setUploadingWechat(true)
-      const result = await uploadQrcode('wechat', file)
-      if (result.success && result.data?.image_url) {
-        setWechatQrcode(result.data.image_url + '?t=' + Date.now())
-        addToast({ type: 'success', message: '微信群二维码上传成功' })
-      } else {
-        addToast({ type: 'error', message: result.message || '上传失败' })
-      }
-    } catch {
-      addToast({ type: 'error', message: '上传失败' })
-    } finally {
-      setUploadingWechat(false)
-      e.target.value = ''
-    }
-  }
-
-  // 上传QQ群二维码
-  const handleUploadQqQrcode = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    try {
-      setUploadingQq(true)
-      const result = await uploadQrcode('qq', file)
-      if (result.success && result.data?.image_url) {
-        setQqQrcode(result.data.image_url + '?t=' + Date.now())
-        addToast({ type: 'success', message: 'QQ群二维码上传成功' })
-      } else {
-        addToast({ type: 'error', message: result.message || '上传失败' })
-      }
-    } catch {
-      addToast({ type: 'error', message: '上传失败' })
-    } finally {
-      setUploadingQq(false)
-      e.target.value = ''
-    }
-  }
-
-  // 上传微信公众号二维码
-  const handleUploadWechatOfficialQrcode = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    try {
-      setUploadingWechatOfficial(true)
-      const result = await uploadQrcode('wechat_official', file)
-      if (result.success && result.data?.image_url) {
-        setWechatOfficialQrcode(result.data.image_url + '?t=' + Date.now())
-        addToast({ type: 'success', message: '微信公众号二维码上传成功' })
-      } else {
-        addToast({ type: 'error', message: result.message || '上传失败' })
-      }
-    } catch {
-      addToast({ type: 'error', message: '上传失败' })
-    } finally {
-      setUploadingWechatOfficial(false)
-      e.target.value = ''
-    }
-  }
-
-  // 上传TG二维码
-  const handleUploadTelegramQrcode = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    try {
-      setUploadingTelegram(true)
-      const result = await uploadQrcode('telegram', file)
-      if (result.success && result.data?.image_url) {
-        setTelegramQrcode(result.data.image_url + '?t=' + Date.now())
-        addToast({ type: 'success', message: 'TG二维码上传成功' })
-      } else {
-        addToast({ type: 'error', message: result.message || '上传失败' })
-      }
-    } catch {
-      addToast({ type: 'error', message: '上传失败' })
-    } finally {
-      setUploadingTelegram(false)
-      e.target.value = ''
-    }
-  }
-
-  // 上传赞赏码
-  const handleUploadRewardQrcode = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    try {
-      setUploadingReward(true)
-      const result = await uploadQrcode('reward', file)
-      if (result.success && result.data?.image_url) {
-        setRewardQrcode(result.data.image_url + '?t=' + Date.now())
-        addToast({ type: 'success', message: '赞赏码上传成功' })
-      } else {
-        addToast({ type: 'error', message: result.message || '上传失败' })
-      }
-    } catch {
-      addToast({ type: 'error', message: '上传失败' })
-    } finally {
-      setUploadingReward(false)
-      e.target.value = ''
-    }
-  }
-
   if (!user?.is_admin) {
     return <Navigate to="/dashboard" replace />
   }
@@ -789,165 +609,6 @@ export function Settings() {
             </div>
           </div>
 
-          {/* 群二维码管理 */}
-          <div className="vben-card lg:col-span-2">
-            <div className="vben-card-header">
-              <h2 className="vben-card-title">
-                <MessageCircle className="w-4 h-4" />
-                群二维码管理
-              </h2>
-            </div>
-            <div className="vben-card-body">
-              <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">上传的二维码将显示在"关于"页面</p>
-              <div className="grid grid-cols-5 gap-4">
-                {/* 微信群 */}
-                <div className="text-center">
-                  <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 flex items-center justify-center gap-1">
-                    <MessageCircle className="w-4 h-4 text-green-500" />
-                    微信群
-                  </p>
-                  <div className="w-24 h-24 mx-auto mb-2 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden bg-slate-50 dark:bg-slate-800">
-                    {wechatQrcode ? (
-                      <img src={wechatQrcode} alt="微信群" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-slate-400 text-xs">未上传</div>
-                    )}
-                  </div>
-                  <input
-                    ref={wechatFileRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handleUploadWechatQrcode}
-                    className="hidden"
-                  />
-                  <button
-                    onClick={() => wechatFileRef.current?.click()}
-                    disabled={uploadingWechat}
-                    className="btn-ios-secondary btn-sm"
-                  >
-                    {uploadingWechat ? <ButtonLoading /> : <Upload className="w-3 h-3" />}
-                    上传
-                  </button>
-                </div>
-                {/* QQ群 */}
-                <div className="text-center">
-                  <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 flex items-center justify-center gap-1">
-                    <Users className="w-4 h-4 text-blue-500" />
-                    QQ群
-                  </p>
-                  <div className="w-24 h-24 mx-auto mb-2 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden bg-slate-50 dark:bg-slate-800">
-                    {qqQrcode ? (
-                      <img src={qqQrcode} alt="QQ群" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-slate-400 text-xs">未上传</div>
-                    )}
-                  </div>
-                  <input
-                    ref={qqFileRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handleUploadQqQrcode}
-                    className="hidden"
-                  />
-                  <button
-                    onClick={() => qqFileRef.current?.click()}
-                    disabled={uploadingQq}
-                    className="btn-ios-secondary btn-sm"
-                  >
-                    {uploadingQq ? <ButtonLoading /> : <Upload className="w-3 h-3" />}
-                    上传
-                  </button>
-                </div>
-                {/* 微信公众号 */}
-                <div className="text-center">
-                  <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 flex items-center justify-center gap-1">
-                    <MessageCircle className="w-4 h-4 text-green-600" />
-                    公众号
-                  </p>
-                  <div className="w-24 h-24 mx-auto mb-2 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden bg-slate-50 dark:bg-slate-800">
-                    {wechatOfficialQrcode ? (
-                      <img src={wechatOfficialQrcode} alt="微信公众号" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-slate-400 text-xs">未上传</div>
-                    )}
-                  </div>
-                  <input
-                    ref={wechatOfficialFileRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handleUploadWechatOfficialQrcode}
-                    className="hidden"
-                  />
-                  <button
-                    onClick={() => wechatOfficialFileRef.current?.click()}
-                    disabled={uploadingWechatOfficial}
-                    className="btn-ios-secondary btn-sm"
-                  >
-                    {uploadingWechatOfficial ? <ButtonLoading /> : <Upload className="w-3 h-3" />}
-                    上传
-                  </button>
-                </div>
-                {/* TG */}
-                <div className="text-center">
-                  <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 flex items-center justify-center gap-1">
-                    <MessageCircle className="w-4 h-4 text-blue-400" />
-                    Telegram
-                  </p>
-                  <div className="w-24 h-24 mx-auto mb-2 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden bg-slate-50 dark:bg-slate-800">
-                    {telegramQrcode ? (
-                      <img src={telegramQrcode} alt="Telegram" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-slate-400 text-xs">未上传</div>
-                    )}
-                  </div>
-                  <input
-                    ref={telegramFileRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handleUploadTelegramQrcode}
-                    className="hidden"
-                  />
-                  <button
-                    onClick={() => telegramFileRef.current?.click()}
-                    disabled={uploadingTelegram}
-                    className="btn-ios-secondary btn-sm"
-                  >
-                    {uploadingTelegram ? <ButtonLoading /> : <Upload className="w-3 h-3" />}
-                    上传
-                  </button>
-                </div>
-                {/* 赞赏码 */}
-                <div className="text-center">
-                  <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 flex items-center justify-center gap-1">
-                    <Heart className="w-4 h-4 text-red-500" />
-                    赞赏码
-                  </p>
-                  <div className="w-24 h-24 mx-auto mb-2 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden bg-slate-50 dark:bg-slate-800">
-                    {rewardQrcode ? (
-                      <img src={rewardQrcode} alt="赞赏码" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-slate-400 text-xs">未上传</div>
-                    )}
-                  </div>
-                  <input
-                    ref={rewardFileRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handleUploadRewardQrcode}
-                    className="hidden"
-                  />
-                  <button
-                    onClick={() => rewardFileRef.current?.click()}
-                    disabled={uploadingReward}
-                    className="btn-ios-secondary btn-sm"
-                  >
-                    {uploadingReward ? <ButtonLoading /> : <Upload className="w-3 h-3" />}
-                    上传
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       )}
 
@@ -974,15 +635,6 @@ export function Settings() {
           saving={loginBrandingSaving}
           onChange={handleLoginBrandingChange}
           onSave={handleLoginBrandingSave}
-        />
-      )}
-
-      {user?.is_admin && (
-        <AuthFooterAdSettingsCard
-          settings={authFooterAdSettings}
-          saving={authFooterAdSaving}
-          onChange={handleAuthFooterAdChange}
-          onSave={handleAuthFooterAdSave}
         />
       )}
 
