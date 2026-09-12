@@ -81,3 +81,21 @@
 2. 后端移除(B1-B7)+ launcher(L1-L2)→ 独立 commit
 3. README/杂项(D1-D6)→ 独立 commit
 4. 验证:双前端 `tsc + vite build`、后端 `py_compile` 全量、闭环复扫(悬空=0、已删符号残留=0)→ 回归结果写回本文件
+
+## ✅ 回归验证结果(已执行)
+
+| 项 | 结果 |
+|---|---|
+| frontend `tsc -b` | 通过(修复 1 处残留未用 import) |
+| frontend `vite build` | 通过(✓ built in 6.39s) |
+| promotion/frontend `vite build` | 通过(✓ built in 3.06s,基线未改动) |
+| Python 全量 `py_compile` | 470 文件 0 失败(修复 init_database.py 种子项删除残留缩进) |
+| 后端路由数 | 376 → 360(广告买卖 16 端点 + qrcode 2 端点 + version/check 下线) |
+| 前端 API×后端路由悬空 | 2 处,与基线一致(backup/export|import,位于历史孤儿死函数 exportUserBackup/importUserBackup,非本次引入,页面无入口) |
+| 已删符号残留 grep | getPublicAds / fetch_remote / remote_content_service / check_update / remote_official / footer_ad 全部归零 |
+| 机械统计回归 | 无新增乱码/内联 hex/重复选择器 |
+
+### 遗留事项(不阻塞,供后续参考)
+- `settings.ts` 中 exportUserBackup/importUserBackup 为历史死代码(调不存在的端点且无调用方),本次按"不动非涉及面"原则保留,可在后续死代码清理批次一并删除。
+- P1 孤儿函数清单中未涉及广告面的 22 个函数保持原样(见 P1-1)。
+- P2 项(4 处 rgba 硬编码、Google Fonts 外链、隐藏死路由)仅记录,未改动。

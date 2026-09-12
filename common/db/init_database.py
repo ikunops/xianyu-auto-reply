@@ -129,7 +129,6 @@ class DatabaseInitializer:
             "自动回复、智能客服、订单管理、数据分析，一站式解决闲鱼运营难题",
             "登录页系统描述",
         ),
-        ),
         (
             "theme.effect",
             "solid",
