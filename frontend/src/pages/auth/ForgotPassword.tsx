@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { MessageSquare, Mail, KeyRound, Lock, Eye, EyeOff, ArrowLeft } from 'lucide-react'
-import { AuthNavbar } from '@/components/common/AuthNavbar'
+import { AuthNavbar, PublicPageFooter } from '@/components/common/AuthNavbar'
 import { getDefaultLoginBrandingSettings } from '@/api/settings'
 import { sendResetPasswordCode, resetPassword, getLoginBrandingSettings } from '@/api/auth'
 import { useUIStore } from '@/store/uiStore'
@@ -312,6 +312,9 @@ export function ForgotPassword() {
                   返回登录
                 </Link>
               </p>
+
+              {/* Footer */}
+              <PublicPageFooter />
             </div>
           </motion.div>
         </div>

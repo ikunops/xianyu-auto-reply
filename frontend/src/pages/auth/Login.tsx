@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { MessageSquare, User, Lock, Mail, KeyRound, Eye, EyeOff } from 'lucide-react'
-import { AuthNavbar } from '@/components/common/AuthNavbar'
+import { AuthNavbar, PublicPageFooter } from '@/components/common/AuthNavbar'
 import { getDefaultLoginBrandingSettings } from '@/api/settings'
 import { login, verifyToken, getRegistrationStatus, getLoginInfoStatus, generateCaptcha, verifyCaptcha, sendVerificationCode, getLoginCaptchaStatus, getLoginBrandingSettings } from '@/api/auth'
 import { useAuthStore } from '@/store/authStore'
@@ -578,6 +578,9 @@ export function Login() {
               </div>
             )}
           </div>
+
+          {/* Footer */}
+          <PublicPageFooter />
         </motion.div>
       </div>
       </div>

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { MessageSquare, User, Lock, Mail, KeyRound, Eye, EyeOff } from 'lucide-react'
-import { AuthNavbar } from '@/components/common/AuthNavbar'
+import { AuthNavbar, PublicPageFooter } from '@/components/common/AuthNavbar'
 import { register, getRegistrationStatus, generateCaptcha, verifyCaptcha, sendVerificationCode } from '@/api/auth'
 import { useUIStore } from '@/store/uiStore'
 import { cn } from '@/utils/cn'
@@ -363,6 +363,9 @@ export function Register() {
               立即登录
             </Link>
           </p>
+
+          {/* Footer */}
+          <PublicPageFooter />
         </div>
       </div>
       </div>
