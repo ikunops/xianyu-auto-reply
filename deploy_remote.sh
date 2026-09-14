@@ -73,9 +73,9 @@ REDIS_DB=0
 
 # 说明：JWT 密钥由数据库统一托管（首次启动自动生成并持久化），无需在此配置
 
-# 端口配置（对外暴露端口；backend-web 默认 8098，避免与其他常用服务冲突）
+# 端口配置（对外暴露端口；backend-web 默认 8778，避免与其他常用服务冲突）
 FRONTEND_PORT=9000
-BACKEND_WEB_PORT=8098
+BACKEND_WEB_PORT=8778
 WEBSOCKET_PORT=8090
 SCHEDULER_PORT=8091
 
@@ -181,8 +181,8 @@ services:
       - ./xianyu_auto_reply/static:/app/static
       - ./xianyu_auto_reply/backups:/app/backups
     ports:
-      # 对外暴露端口默认 8098（避免与常用服务 8089 冲突）；容器内部仍为 8089
-      - "${BACKEND_WEB_PORT:-8098}:8089"
+      # 对外暴露端口默认 8778（避免与常用服务 8089 冲突）；容器内部仍为 8089
+      - "${BACKEND_WEB_PORT:-8778}:8089"
     networks:
       - xianyu-network
     healthcheck:
@@ -377,12 +377,12 @@ $DC_CMD ps
 
 # 读取端口配置
 frontend_port=$(grep -E "^FRONTEND_PORT=" "$ENV_FILE" 2>/dev/null | cut -d '=' -f2 | tr -d '\r' || echo "9000")
-backend_web_port=$(grep -E "^BACKEND_WEB_PORT=" "$ENV_FILE" 2>/dev/null | cut -d '=' -f2 | tr -d '\r' || echo "8098")
+backend_web_port=$(grep -E "^BACKEND_WEB_PORT=" "$ENV_FILE" 2>/dev/null | cut -d '=' -f2 | tr -d '\r' || echo "8778")
 websocket_port=$(grep -E "^WEBSOCKET_PORT=" "$ENV_FILE" 2>/dev/null | cut -d '=' -f2 | tr -d '\r' || echo "8090")
 scheduler_port=$(grep -E "^SCHEDULER_PORT=" "$ENV_FILE" 2>/dev/null | cut -d '=' -f2 | tr -d '\r' || echo "8091")
 
 frontend_port="${frontend_port:-9000}"
-backend_web_port="${backend_web_port:-8098}"
+backend_web_port="${backend_web_port:-8778}"
 websocket_port="${websocket_port:-8090}"
 scheduler_port="${scheduler_port:-8091}"
 

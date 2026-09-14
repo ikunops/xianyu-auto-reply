@@ -102,9 +102,9 @@ REDIS_DB=0
 
 # 说明：JWT 密钥由数据库统一托管（首次启动自动生成并持久化），无需在此配置
 
-# 端口配置（对外暴露端口；backend-web 默认 8098，避免与其他常用服务冲突）
+# 端口配置（对外暴露端口；backend-web 默认 8778，避免与其他常用服务冲突）
 FRONTEND_PORT=9000
-BACKEND_WEB_PORT=8098
+BACKEND_WEB_PORT=8778
 WEBSOCKET_PORT=8090
 SCHEDULER_PORT=8091
 
@@ -274,7 +274,7 @@ print_success_info() {
     scheduler_port="$(read_env_value SCHEDULER_PORT)"
 
     frontend_port="${frontend_port:-9000}"
-    backend_web_port="${backend_web_port:-8098}"
+    backend_web_port="${backend_web_port:-8778}"
     websocket_port="${websocket_port:-8090}"
     scheduler_port="${scheduler_port:-8091}"
 

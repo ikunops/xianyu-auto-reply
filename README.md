@@ -83,7 +83,7 @@
 
 ```text
 xianyu-auto-reply/
-├── backend-web/          # 主 Web API 服务（端口 8098）
+├── backend-web/          # 主 Web API 服务（端口 8778）
 ├── websocket/            # 闲鱼连接与消息处理服务（端口 8090）
 ├── scheduler/            # 定时任务服务（端口 8091）
 ├── common/               # 主系统与返佣系统共享模块
@@ -113,7 +113,7 @@ xianyu-auto-reply/
 | 服务 | 默认端口 | 说明 |
 |------|----------|------|
 | `frontend` | 9000 | 主系统前端 |
-| `backend-web` | 8098 | 主系统 API 网关、业务接口 |
+| `backend-web` | 8778 | 主系统 API 网关、业务接口 |
 | `websocket` | 8090 | 闲鱼 WebSocket、消息收发、登录与订单联动 |
 | `scheduler` | 8091 | 定时任务执行器 |
 | `promotion/backend` | 8092 | 返佣后端 API |
@@ -146,7 +146,7 @@ bash deploy.sh
 - 首次运行会自动生成 `.env` 配置文件，再用**本仓库源码**构建镜像并启动（不拉取任何第三方预构建应用镜像）
 - 部署完成后默认访问地址：
   - 前端：`http://服务器IP:9000`
-  - API 文档：`http://服务器IP:8098/docs`
+  - API 文档：`http://服务器IP:8778/docs`
   - 默认账号：`admin` / `admin123`
 
 后续更新（拉取最新源码后从源码重建）：
@@ -230,12 +230,12 @@ REDIS_PORT=6379
 REDIS_PASSWORD=
 REDIS_DB=0
 CORS_ORIGINS=*
-BACKEND_WEB_PORT=8098
+BACKEND_WEB_PORT=8778
 WEBSOCKET_PORT=8090
 SCHEDULER_PORT=8091
 WEBSOCKET_SERVICE_URL=http://127.0.0.1:8090
 SCHEDULER_SERVICE_URL=http://127.0.0.1:8091
-BACKEND_WEB_SERVICE_URL=http://127.0.0.1:8098
+BACKEND_WEB_SERVICE_URL=http://127.0.0.1:8778
 STATIC_DIR=static
 TZ=Asia/Shanghai
 ```

@@ -103,8 +103,8 @@ services:
       - static-files:/app/static
       - backup-files:/app/backups
     ports:
-      # 对外暴露端口默认 8098（避免与常用服务 8089 冲突）；容器内部仍为 8089
-      - "${BACKEND_WEB_PORT:-8098}:8089"
+      # 对外暴露端口默认 8778（避免与常用服务 8089 冲突）；容器内部仍为 8089
+      - "${BACKEND_WEB_PORT:-8778}:8089"
     networks:
       - xianyu-network
     depends_on:

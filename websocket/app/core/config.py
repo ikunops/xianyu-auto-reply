@@ -52,7 +52,7 @@ class WebSocketConfig(BaseConfig):
     
     # 服务间通信URL
     backend_web_service_url: str = Field(
-        default="http://localhost:8098",
+        default="http://localhost:8778",
         alias="BACKEND_WEB_SERVICE_URL"
     )
     
