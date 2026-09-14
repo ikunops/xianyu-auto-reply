@@ -99,6 +99,8 @@ export function Orders() {
   const [deleteConfirm, setDeleteConfirm] = useState<{ open: boolean; id: string | null }>({ open: false, id: null })
   const [batchDeleteConfirm, setBatchDeleteConfirm] = useState(false)
   const [deliveryConfirm, setDeliveryConfirm] = useState<{ open: boolean; orderNo: string | null }>({ open: false, orderNo: null })
+  // 未选账号时的「同步全部账号」二次确认
+  const [fetchAllConfirm, setFetchAllConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
   // 筛选面板展开状态
@@ -281,15 +283,11 @@ export function Orders() {
     }
   }
 
-  const handleFetchXianyuOrders = async () => {
-    // 未选择账号时给出提示，不再默认禁用按钮
-    if (!selectedAccount) {
-      addToast({ type: 'warning', message: '请先选择账号' })
-      return
-    }
+  // 实际执行订单同步：cookieId 为空表示同步全部活跃账号（后端 /fetch-xianyu 已支持）
+  const doFetchXianyuOrders = async (cookieId?: string) => {
     setFetchingXianyuOrders(true)
     try {
-      const result = await fetchXianyuOrders(selectedAccount || undefined)
+      const result = await fetchXianyuOrders(cookieId || undefined)
       if (result.success) {
         const syncData = result.data
         addToast({
@@ -310,6 +308,15 @@ export function Orders() {
     } finally {
       setFetchingXianyuOrders(false)
     }
+  }
+
+  const handleFetchXianyuOrders = () => {
+    // 未选择账号时不再直接拒绝：后端支持全量同步，这里弹确认框说明耗时即可
+    if (!selectedAccount) {
+      setFetchAllConfirm(true)
+      return
+    }
+    doFetchXianyuOrders(selectedAccount)
   }
 
   // 勾选操作
@@ -366,7 +373,12 @@ export function Orders() {
           <p className="page-description">查看和管理所有订单信息</p>
         </div>
         <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-          <button onClick={handleFetchXianyuOrders} disabled={fetchingXianyuOrders} className="btn-ios-primary w-full sm:w-auto" title="只能获取近3个月内的订单">
+          <button
+            onClick={handleFetchXianyuOrders}
+            disabled={fetchingXianyuOrders}
+            className="btn-ios-primary w-full sm:w-auto"
+            title="只能获取近3个月内的订单；未选择账号时同步全部活跃账号（可在下方「筛选 → 筛选账号」中指定单个账号以加快速度）"
+          >
             {fetchingXianyuOrders ? (
               <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
@@ -1185,6 +1197,29 @@ export function Orders() {
         loading={deleting}
         onConfirm={handleBatchDelete}
         onCancel={() => setBatchDeleteConfirm(false)}
+      />
+
+      {/* 未选账号时的全量同步确认弹窗 */}
+      <ConfirmModal
+        isOpen={fetchAllConfirm}
+        title="同步全部账号的订单"
+        message={
+          accounts.length > 0
+            ? `当前未筛选账号，将同步全部 ${accounts.length} 个账号近 3 个月的订单，耗时可能较久。若只想同步某一个账号，请先点「筛选」并在「筛选账号」中选择。确定继续吗？`
+            : '当前未筛选账号，将同步全部活跃账号近 3 个月的订单，耗时可能较久。确定继续吗？'
+        }
+        confirmText="开始同步"
+        cancelText="去筛选账号"
+        type="warning"
+        loading={fetchingXianyuOrders}
+        onConfirm={() => {
+          setFetchAllConfirm(false)
+          doFetchXianyuOrders()
+        }}
+        onCancel={() => {
+          setFetchAllConfirm(false)
+          setShowFilters(true)
+        }}
       />
 
       {/* 发货确认弹窗 */}
