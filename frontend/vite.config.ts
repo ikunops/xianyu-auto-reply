@@ -49,13 +49,13 @@ export default defineConfig({
     proxy: {
       // 所有 API 请求统一代理到后端（含WebSocket升级）；目标地址可用 BACKEND_WEB_URL 覆盖
       '/api': {
-        target: process.env.BACKEND_WEB_URL || 'http://localhost:8089',
+        target: process.env.BACKEND_WEB_URL || 'http://localhost:8098',
         changeOrigin: true,
         ws: true,
       },
       // 静态文件代理到后端（包含上传的图片）
       '/static': {
-        target: process.env.BACKEND_WEB_URL || 'http://localhost:8089',
+        target: process.env.BACKEND_WEB_URL || 'http://localhost:8098',
         changeOrigin: true,
       },
     },

@@ -87,7 +87,7 @@ REDIS_DB=0
 
 # 端口
 FRONTEND_PORT=9000
-BACKEND_WEB_PORT=8089
+BACKEND_WEB_PORT=8098
 WEBSOCKET_PORT=8090
 SCHEDULER_PORT=8091
 
@@ -176,7 +176,7 @@ start_services() {
     echo ""
     echo "服务访问地址："
     echo "  前端:         http://localhost:9000"
-    echo "  Backend-Web:  http://localhost:8089"
+    echo "  Backend-Web:  http://localhost:8098"
     echo "  WebSocket:    http://localhost:8090"
     echo "  Scheduler:    http://localhost:8091"
     echo ""

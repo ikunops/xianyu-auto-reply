@@ -83,7 +83,7 @@
 
 ```text
 xianyu-auto-reply/
-├── backend-web/          # 主 Web API 服务（端口 8089）
+├── backend-web/          # 主 Web API 服务（端口 8098）
 ├── websocket/            # 闲鱼连接与消息处理服务（端口 8090）
 ├── scheduler/            # 定时任务服务（端口 8091）
 ├── common/               # 主系统与返佣系统共享模块
@@ -113,7 +113,7 @@ xianyu-auto-reply/
 | 服务 | 默认端口 | 说明 |
 |------|----------|------|
 | `frontend` | 9000 | 主系统前端 |
-| `backend-web` | 8089 | 主系统 API 网关、业务接口 |
+| `backend-web` | 8098 | 主系统 API 网关、业务接口 |
 | `websocket` | 8090 | 闲鱼 WebSocket、消息收发、登录与订单联动 |
 | `scheduler` | 8091 | 定时任务执行器 |
 | `promotion/backend` | 8092 | 返佣后端 API |
@@ -143,13 +143,13 @@ cd xianyu-auto-reply
 bash deploy.sh
 ```
 
-- 首次运行会自动生成 `.env` 配置文件和 `docker-compose.deploy.yml` 并启动服务
+- 首次运行会自动生成 `.env` 配置文件，再用**本仓库源码**构建镜像并启动（不拉取任何第三方预构建应用镜像）
 - 部署完成后默认访问地址：
   - 前端：`http://服务器IP:9000`
-  - API 文档：`http://服务器IP:8089/docs`
+  - API 文档：`http://服务器IP:8098/docs`
   - 默认账号：`admin` / `admin123`
 
-后续更新：
+后续更新（拉取最新源码后从源码重建）：
 
 ```bash
 bash update.sh
@@ -158,7 +158,7 @@ bash update.sh
 ### 方式二：使用远程 MySQL / Redis 部署
 
 当 MySQL 和 Redis 由外部（如云数据库 RDS、独立服务器或已有实例）提供时，可使用 `deploy_remote.sh`。
-该脚本**不内置 mysql/redis 容器**，仅拉取并启动 4 个应用服务（frontend / backend-web / websocket / scheduler），
+该脚本**不内置 mysql/redis 容器**，仅用**本仓库源码**构建并启动 4 个应用服务（frontend / backend-web / websocket / scheduler），
 数据库连接信息通过 `.env.remote` 配置：
 
 ```bash
@@ -230,12 +230,12 @@ REDIS_PORT=6379
 REDIS_PASSWORD=
 REDIS_DB=0
 CORS_ORIGINS=*
-BACKEND_WEB_PORT=8089
+BACKEND_WEB_PORT=8098
 WEBSOCKET_PORT=8090
 SCHEDULER_PORT=8091
 WEBSOCKET_SERVICE_URL=http://127.0.0.1:8090
 SCHEDULER_SERVICE_URL=http://127.0.0.1:8091
-BACKEND_WEB_SERVICE_URL=http://127.0.0.1:8089
+BACKEND_WEB_SERVICE_URL=http://127.0.0.1:8098
 STATIC_DIR=static
 TZ=Asia/Shanghai
 ```

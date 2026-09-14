@@ -195,7 +195,7 @@ def _render_status_content(app):
     status_frame.pack(fill=tk.X, padx=20, pady=(0, 10))
 
     service_names = {
-        "backend-web": ("后端管理服务", "8089"),
+        "backend-web": ("后端管理服务", "8098"),
         "websocket": ("WebSocket服务", "8090"),
         "scheduler": ("定时任务服务", "8091"),
         "frontend": ("前端界面服务", "9000"),
@@ -256,7 +256,7 @@ def _render_status_content(app):
     url_lbl.pack(anchor=tk.W)
     url_lbl.bind("<Button-1>", lambda e: open_browser())
 
-    for name, addr in [("后端API", "127.0.0.1:8089"),
+    for name, addr in [("后端API", "127.0.0.1:8098"),
                        ("WebSocket", "127.0.0.1:8090"),
                        ("定时任务", "127.0.0.1:8091")]:
         tk.Label(url_frame, text=f"{name}：http://{addr}", font=("Consolas", 9),

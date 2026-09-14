@@ -27,8 +27,8 @@ from typing import Optional
 # 前端代理目标配置
 # 注意：/static/uploads/ 代理到后端（上传文件），其余/static/由前端静态服务器直接提供
 _PROXY_RULES = {
-    "/api/": "http://127.0.0.1:8089",
-    "/static/uploads/": "http://127.0.0.1:8089",
+    "/api/": "http://127.0.0.1:8098",
+    "/static/uploads/": "http://127.0.0.1:8098",
 }
 
 
@@ -91,7 +91,7 @@ class FrontendHandler(http.server.SimpleHTTPRequestHandler):
         将请求代理到后端服务
         
         Args:
-            target_base: 后端服务基地址，如 http://127.0.0.1:8089
+            target_base: 后端服务基地址，如 http://127.0.0.1:8098
         """
         try:
             target_url = f"{target_base}{self.path}"
@@ -201,7 +201,7 @@ class ServiceManager:
             f"REDIS_PORT={config['redis_port']}\n"
             f"REDIS_PASSWORD={config['redis_password']}\n"
             f"REDIS_DB={config['redis_db']}\n"
-            f"BACKEND_WEB_PORT=8089\n"
+            f"BACKEND_WEB_PORT=8098\n"
             f"JWT_ALGORITHM=HS256\n"
             f"ACCESS_TOKEN_EXPIRE_MINUTES=30\n"
             f"REFRESH_TOKEN_EXPIRE_MINUTES=10080\n"
@@ -211,7 +211,7 @@ class ServiceManager:
             f"STATIC_DIR=static\n"
             f"BACKUP_DIR={backup_dir}\n"
             f"FRONTEND_PUBLIC_URL=http://127.0.0.1:9000\n"
-            f"BACKEND_WEB_PUBLIC_URL=http://127.0.0.1:8089\n"
+            f"BACKEND_WEB_PUBLIC_URL=http://127.0.0.1:8098\n"
         )
         
         # websocket .env
@@ -232,7 +232,7 @@ class ServiceManager:
             f"BROWSER_HEADLESS=true\n"
             f"TOKEN_REFRESH_INTERVAL=72000\n"
             f"TOKEN_RETRY_INTERVAL=7200\n"
-            f"BACKEND_WEB_SERVICE_URL=http://127.0.0.1:8089\n"
+            f"BACKEND_WEB_SERVICE_URL=http://127.0.0.1:8098\n"
             f"STATIC_DIR=static\n"
         )
         
@@ -253,7 +253,7 @@ class ServiceManager:
             f"REDELIVERY_INTERVAL=5\n"
             f"RATE_INTERVAL=20\n"
             f"WEBSOCKET_SERVICE_URL=http://127.0.0.1:8090\n"
-            f"BACKEND_WEB_SERVICE_URL=http://127.0.0.1:8089\n"
+            f"BACKEND_WEB_SERVICE_URL=http://127.0.0.1:8098\n"
             f"STATIC_DIR=static\n"
             f"BACKUP_DIR={backup_dir}\n"
         )
@@ -432,7 +432,7 @@ class ServiceManager:
         
         # 启动3个Python后端服务，按依赖顺序启动
         services = [
-            ("backend-web", "backend-web", 8089),
+            ("backend-web", "backend-web", 8098),
             ("websocket", "websocket", 8090),
             ("scheduler", "scheduler", 8091),
         ]
@@ -496,7 +496,7 @@ class ServiceManager:
                 pass
         
         # 通过端口强杀残留进程，确保端口被释放
-        for port in [8089, 8090, 8091, 9000]:
+        for port in [8098, 8090, 8091, 9000]:
             kill_by_port(port)
         
         # 关闭日志文件句柄
@@ -529,7 +529,7 @@ class ServiceManager:
         """
         # 所有服务及其端口（固定列表，不依赖_processes）
         all_services = {
-            "backend-web": 8089,
+            "backend-web": 8098,
             "websocket": 8090,
             "scheduler": 8091,
             "frontend": 9000,

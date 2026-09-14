@@ -32,7 +32,7 @@ class BackendWebConfig(BaseConfig):
     project_name: str = Field(default="Xianyu Backend-Web Service")
     version: str = Field(default="0.1.0")
     api_v1_prefix: str = Field(default="/api/v1")
-    service_port: int = Field(default=8089, alias="BACKEND_WEB_PORT")
+    service_port: int = Field(default=8098, alias="BACKEND_WEB_PORT")
     
     # JWT配置
     # 注意：jwt_secret_key 由数据库统一托管（启动时 ensure_jwt_secret_key 自动生成/加载并写回此实例），
@@ -65,7 +65,7 @@ class BackendWebConfig(BaseConfig):
 
     # Backend-Web服务的公网访问地址（用于生成文件URL）
     backend_web_public_url: str = Field(
-        default="http://localhost:8089",
+        default="http://localhost:8098",
         alias="BACKEND_WEB_PUBLIC_URL"
     )
     
