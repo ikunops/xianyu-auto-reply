@@ -363,7 +363,16 @@ class XianyuPublisher:
             await _stage("category")
             await self._select_category()
 
-            await self._fill_spec_and_stock(item_data)
+            # 规格/库存模式开关：默认关闭。
+            # 背景：闲鱼发布页无独立库存框，库存挂在「商品规格」里；但平台要求每个规格
+            # 至少 2 个规格值，而多规格订单会带 spec_value，现有卡券(is_multi_spec=false)
+            # 在有规格信息时不会被匹配 → 会破坏自动发货。故默认跳过规格，库存按平台默认；
+            # 待卡券侧按规格配置完成后再开启：环境变量 XIANYU_SPEC_MODE=1
+            import os as _os
+            if _os.environ.get('XIANYU_SPEC_MODE', '0') == '1':
+                await self._fill_spec_and_stock(item_data)
+            else:
+                logger.info("\n[步骤7] ⏭️ 跳过商品规格（库存按平台默认值；如需规格库存请设 XIANYU_SPEC_MODE=1）")
             await asyncio.sleep(1)
 
             await _stage("fields")
@@ -1898,7 +1907,7 @@ class XianyuPublisher:
             await stock_input.fill(str(stock))
             logger.info(f"✅ 库存已设为{stock}")
         else:
-            logger.warning("⚠️ 未找到库存输入框，保持页面默认值")
+            logger.info("ℹ️ 未找到库存输入框（无规格时为正常），库存按平台默认值")
 
     async def _set_free_shipping(self):
         """发货方式优先选无需快递（虚拟产品），找不到则回退包邮"""
