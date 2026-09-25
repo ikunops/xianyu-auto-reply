@@ -9,6 +9,7 @@ import {
   createMaterial, updateMaterial, uploadProductImages,
   type ProductMaterial, type MaterialCreateParams,
 } from '@/api/productPublish'
+import { mediaUrl } from '@/utils/mediaUrl'
 
 const CONDITIONS = ['全新', '99新', '95新', '9成新', '8成新', '7成新以下']
 const CATEGORIES = ['数码家电', '服饰鞋包', '家居日用', '图书音像', '美妆个护', '母婴用品', '运动户外', '食品生鲜', '虚拟商品', '其他']
@@ -37,6 +38,9 @@ export function MaterialFormModal({ initial, onClose, onSaved }: Props) {
     brand: initial?.brand ?? '',
     condition: initial?.condition ?? '全新',
     remark: initial?.remark ?? '',
+    stock: initial?.stock ?? 9999,
+    spec_name: initial?.spec_name ?? '份数',
+    spec_value: initial?.spec_value ?? '1份',
   })
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -108,6 +112,21 @@ export function MaterialFormModal({ initial, onClose, onSaved }: Props) {
                   value={form.price || ''} onChange={e => setForm(f => ({ ...f, price: parseFloat(e.target.value) || 0 }))} />
               </div>
               <div className="input-group">
+                <label className="input-label">库存（件）</label>
+                <input type="number" className="input-ios" placeholder="9999" min="1" step="1"
+                  value={form.stock ?? 9999} onChange={e => setForm(f => ({ ...f, stock: parseInt(e.target.value) || 9999 }))} />
+              </div>
+              <div className="input-group">
+                <label className="input-label">规格名（闲鱼库存挂在规格上）</label>
+                <input className="input-ios" placeholder="份数"
+                  value={form.spec_name ?? ''} onChange={e => setForm(f => ({ ...f, spec_name: e.target.value }))} />
+              </div>
+              <div className="input-group">
+                <label className="input-label">规格值</label>
+                <input className="input-ios" placeholder="1份"
+                  value={form.spec_value ?? ''} onChange={e => setForm(f => ({ ...f, spec_value: e.target.value }))} />
+              </div>
+              <div className="input-group">
                 <label className="input-label">原价（划线价，选填）</label>
                 <input type="number" className="input-ios" placeholder="0.00" min="0" step="0.01"
                   value={form.original_price || ''} onChange={e => setForm(f => ({ ...f, original_price: parseFloat(e.target.value) || undefined }))} />
@@ -171,7 +190,7 @@ export function MaterialFormModal({ initial, onClose, onSaved }: Props) {
               <div className="flex flex-wrap gap-2 mt-1.5">
                 {(form.images || []).map((url, i) => (
                   <div key={i} className="relative w-20 h-20 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-600 group">
-                    <img src={url} alt="" className="w-full h-full object-cover" />
+                    <img src={mediaUrl(url)} alt="" className="w-full h-full object-cover" />
                     {i === 0 && (
                       <span className="absolute bottom-0 left-0 right-0 bg-blue-500/80 text-white text-[10px] text-center py-0.5">封面</span>
                     )}

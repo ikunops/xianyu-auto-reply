@@ -192,8 +192,12 @@ class XianyuPublisher:
         cookie_data: dict,
         reuse_browser: bool = False,
         should_close: bool = True,
+        on_stage=None,
     ) -> dict:
-        """发布商品到闲鱼（按原项目完整流程迁回）"""
+        """发布商品到闲鱼（按原项目完整流程迁回）
+
+        on_stage: 可选异步回调 async def(name: str)，用于上报当前流程阶段。
+        """
         result = {
             "success": False,
             "message": "",
@@ -202,12 +206,21 @@ class XianyuPublisher:
             "screenshot": None,
         }
 
+        async def _stage(name: str) -> None:
+            if on_stage is None:
+                return
+            try:
+                await on_stage(name)
+            except Exception:  # 阶段上报绝不能影响发布本身
+                pass
+
         try:
             logger.info("=" * 80)
             logger.info("📝 开始发布商品")
             logger.info("=" * 80)
             logger.info(f"商品信息: {item_data.get('description', '')[:50]}...")
             logger.info(f"浏览器复用模式: {reuse_browser}")
+            await _stage("prepare")
 
             headless = True
             logger.info("🖥️ 使用无头模式（浏览器不可见）")
@@ -222,7 +235,7 @@ class XianyuPublisher:
                 await self.set_cookies(cookie_data["cookie"])
 
             logger.info("\n[步骤1] 🌐 先访问闲鱼首页，触发Cookie初始化...")
-            await self.page.goto("https://www.goofish.com", wait_until="networkidle", timeout=30000)
+            await self.page.goto("https://www.goofish.com", wait_until="domcontentloaded", timeout=30000)
             await asyncio.sleep(1)
 
             logger.info("\n[步骤2] 🌐 访问登录页面...")
@@ -235,7 +248,7 @@ class XianyuPublisher:
 
             publish_url = "https://www.goofish.com/publish?spm=a21ybx.item.sidebar.1.297e3da6aDZAmV"
             logger.info(f"\n[步骤3] 🌐 访问发布页面: {publish_url}")
-            await self.page.goto(publish_url, wait_until="networkidle", timeout=60000)
+            await self.page.goto(publish_url, wait_until="domcontentloaded", timeout=60000)
             await asyncio.sleep(3)
 
             current_url = self.page.url
@@ -341,17 +354,22 @@ class XianyuPublisher:
                 pass
 
             logger.info("\n[步骤4] 📝 填写宝贝描述...")
+            await _stage("content")
             await self._fill_description(item_data)
 
             logger.info("\n[步骤5] ⏳ 等待分类自动变化...")
             await asyncio.sleep(3)
 
+            await _stage("category")
             await self._select_category()
 
-            logger.info("\n[步骤7] ⏭️ 跳过商品规格...")
+            await self._fill_spec_and_stock(item_data)
             await asyncio.sleep(1)
 
+            await _stage("fields")
             await self._fill_price(item_data)
+
+            await self._fill_stock(int(item_data.get('stock') or 9999))
 
             logger.info("\n[步骤10] ⏭️ 跳过服务选择...")
             await asyncio.sleep(1)
@@ -362,8 +380,10 @@ class XianyuPublisher:
 
             await self._set_free_shipping()
 
+            await _stage("address")
             await self._set_item_address(item_data)
 
+            await _stage("submit")
             await self._click_publish_button(result)
 
             logger.info("\n" + "=" * 80)
@@ -1023,7 +1043,13 @@ class XianyuPublisher:
 
             return False
 
-        for selected_index, (selected_text, initial_option) in enumerate(candidate_options, 1):
+        # 候选可能有 20+ 个，每个失败后内层还要重新搜索一轮 → 实测能烧 19 分钟。
+        # 限候选数 + 总时长，宁可快速失败也不要拖垮整批。
+        _addr_deadline = asyncio.get_event_loop().time() + 150
+        for selected_index, (selected_text, initial_option) in enumerate(candidate_options[:4], 1):
+            if asyncio.get_event_loop().time() > _addr_deadline:
+                logger.warning("⚠️ 宝贝所在地重试已达 150 秒上限，停止重试")
+                break
             try:
                 selected_option = initial_option
 
@@ -1043,7 +1069,10 @@ class XianyuPublisher:
                     logger.warning(f"⚠️ 使用候选词重试后未找到可用候选，尝试下一个原始候选: {selected_text}")
                     continue
 
-                for retry_index, (retry_text, retry_option) in enumerate(retry_options, 1):
+                for retry_index, (retry_text, retry_option) in enumerate(retry_options[:4], 1):
+                    if asyncio.get_event_loop().time() > _addr_deadline:
+                        logger.warning("⚠️ 宝贝所在地重试已达 150 秒上限，停止重试")
+                        break
                     try:
                         logger.info(f"↪️ 使用候选词重试[{retry_index}/{len(retry_options)}]: {retry_text}")
                         await retry_option.click()
@@ -1097,6 +1126,12 @@ class XianyuPublisher:
         await desc_input.click()
         await asyncio.sleep(0.5)
         await desc_input.evaluate(f"el => el.innerText = {json.dumps(full_description, ensure_ascii=False)}")
+        # 只赋 innerText 不会触发 React 的 onChange，页面仍认为描述为空（右下角计数器停在 0/1500），
+        # 提交时必填校验过不去 → 必须补发一次 input/change 事件
+        await desc_input.evaluate(
+            "el => { el.dispatchEvent(new InputEvent('input', {bubbles: true, cancelable: true}));"
+            " el.dispatchEvent(new Event('change', {bubbles: true})); }"
+        )
 
         logger.info("✅ 描述已填写")
 
@@ -1262,9 +1297,83 @@ class XianyuPublisher:
             all_excluded.add(current_selected_text)
         return await self._get_leaf_category_options(category_list, exclude_texts=all_excluded)
 
+    # 课程类目在网页版多受限：优先主动选中「电子资料」（也是这类课程的真实成交类目）
+    PREFERRED_CATEGORY = '电子资料'
+    BLOCKED_CATEGORIES = {
+        'IT/编程/计算机考试培训', '其他职业资格认证培训', '其他技能培训',
+        '办公软件&效率软件/电脑基础培训', '互联网产品与运营技能培训', '人力资源管理培训',
+    }
+
+    async def _category_restricted(self) -> bool:
+        """页面上是否有「可见」的受限提示（DOM 里常有隐藏的残留节点，必须判可见性）"""
+        try:
+            return bool(await self.page.evaluate("""() => {
+                const bad = '网页版暂不支持发布此分类';
+                return [...document.querySelectorAll('*')].some(e => !e.children.length
+                    && (e.textContent || '').indexOf(bad) >= 0
+                    && (() => { const r = e.getBoundingClientRect();
+                                return r.width > 0 && r.height > 0; })());
+            }"""))
+        except Exception:
+            return False
+
+    async def _pick_category_by_name(self, name: str) -> bool:
+        """打开类目下拉并选中指定类目。
+
+        ant-select 只响应 mousedown，JS 的 el.click() 打不开下拉，必须用真实鼠标点击；
+        下拉是虚拟列表（一次只渲染十来个），找不到目标就往下滚一格再试。
+        """
+        try:
+            combo = await self.page.query_selector('[class*="categor"] .ant-select-selector')
+            if not combo or not await combo.is_visible():
+                return False
+            await combo.click()
+        except Exception as exc:
+            logger.warning(f"⚠️ 打开类目下拉失败: {exc}")
+            return False
+
+        await asyncio.sleep(1.5)
+        for _ in range(6):
+            try:
+                hit = await self.page.evaluate("""(name) => {
+                    const items = [...document.querySelectorAll('.ant-select-item-option, [role="option"]')];
+                    const vis = items.filter(e => { const r = e.getBoundingClientRect();
+                                                    return r.width > 0 && r.height > 0; });
+                    const el = vis.find(e => (e.innerText || '').trim() === name)
+                            || vis.find(e => (e.innerText || '').trim().indexOf(name) >= 0);
+                    if (!el) return false;
+                    el.scrollIntoView();
+                    el.click();
+                    return true;
+                }""", name)
+            except Exception as exc:
+                logger.warning(f"⚠️ 选择类目 {name} 异常: {exc}")
+                hit = False
+            if hit:
+                await asyncio.sleep(1.5)
+                return True
+            try:
+                await self.page.evaluate("""() => {
+                    const d = document.querySelector('div.ant-select-dropdown, [class*="dropdown"]');
+                    if (!d) return;
+                    for (const n of [d, ...d.querySelectorAll('*')]) {
+                        if (n.scrollHeight > n.clientHeight + 5) n.scrollTop += 120;
+                    }
+                }""")
+            except Exception:
+                pass
+            await asyncio.sleep(0.6)
+        return False
+
     async def _select_category(self):
         """选择商品分类（按原项目整体逻辑迁回）"""
         logger.info("\n[步骤6] 📂 选择分类...")
+
+        # 平台自动识别的类目经常是网页版发不了的（甚至识别成「游戏其他」并多出必填项），先主动选中电子资料
+        if await self._pick_category_by_name(self.PREFERRED_CATEGORY):
+            logger.info(f"✅ 步骤6已选择分类: {self.PREFERRED_CATEGORY}")
+            return
+        logger.warning(f"⚠️ 未能选中 {self.PREFERRED_CATEGORY}，继续原流程")
 
         category_selectors = [
             '[class*="category"]:has(button)',
@@ -1574,10 +1683,249 @@ class XianyuPublisher:
         else:
             logger.info("ℹ️ 未设置原价，跳过")
 
-    async def _set_free_shipping(self):
-        """设置发货方式为包邮（按原项目流程）"""
-        logger.info("\n[步骤12] 🚚 设置发货方式为包邮...")
+    async def _fill_spec_and_stock(self, item_data: dict):
+        """添加规格并填写库存（JS 优先：闲鱼发布页的库存必须挂在「商品规格」里）"""
+        stock = int(item_data.get('stock') or 9999)
+        spec_name = (item_data.get('spec_name') or '份数').strip()
+        spec_value = (item_data.get('spec_value') or '1份').strip()
+        price = item_data.get('price')
+        logger.info(f"\n[步骤7] 📐 添加规格「{spec_name}:{spec_value}」并填写库存 {stock}...")
 
+        # 1) 点「添加规格类型」（Playwright 真点击：React 忽略 JS 合成点击）
+        clicked_ok = False
+        for attempt in range(3):
+            try:
+                loc = self.page.locator('text=添加规格类型').first
+                await loc.scroll_into_view_if_needed(timeout=5000)
+                await loc.click(timeout=8000, force=True)
+                clicked_ok = True
+                logger.info(f"点击添加规格类型: True (attempt {attempt + 1})")
+                break
+            except Exception as e:
+                logger.warning(f"点击添加规格类型失败(attempt {attempt + 1}): {str(e)[:90]}")
+                await asyncio.sleep(1.5)
+        await asyncio.sleep(2.5)
+        # 点击后校验：是否出现「请选择规格类型」的下拉
+        try:
+            appeared = await self.page.evaluate(
+                """() => {
+                    const ph = Array.from(document.querySelectorAll('.ant-select-selection-placeholder'))
+                        .some(e => (e.innerText||'').includes('规格类型'));
+                    const anyTxt = (document.body.innerText||'').includes('请选择规格类型');
+                    return {placeholder: ph, text: anyTxt};
+                }""")
+            logger.info(f"规格下拉是否出现: {appeared}")
+        except Exception as e:
+            logger.warning(f"校验规格下拉异常: {str(e)[:80]}")
+
+        # 2) 转储 DOM 状态，再精确定位「请选择规格类型」下拉
+        try:
+            dump = await self.page.evaluate(
+                """() => {
+                    const vis = e => { const r = e.getBoundingClientRect(); return r.width > 5 && r.height > 5; };
+                    const selects = Array.from(document.querySelectorAll('.ant-select')).map(s => ({
+                        vis: vis(s), text: (s.innerText||'').trim().slice(0,30),
+                        ph: (s.querySelector('.ant-select-selection-placeholder')||{}).innerText || ''
+                    }));
+                    const inputs = Array.from(document.querySelectorAll('input')).map(e => ({
+                        vis: vis(e), ph: e.placeholder||'', cls: (e.className||'').toString().slice(0,40), val: e.value||''
+                    })).filter(x => x.vis);
+                    const phs = Array.from(document.querySelectorAll('.ant-select-selection-placeholder'))
+                        .map(e => (e.innerText||'').trim()).slice(0, 6);
+                    return {selects: selects.slice(0, 8), inputs: inputs.slice(0, 14), placeholders: phs};
+                }""")
+            logger.info(f"DOM转储: {dump}")
+        except Exception as e:
+            logger.warning(f"⚠️ DOM转储失败: {str(e)[:100]}")
+
+        picked = ''
+        try:
+            opened = await self.page.evaluate(
+                """() => {
+                    // 策略1：placeholder 文本含“规格类型”的 ant-select
+                    const phs = Array.from(document.querySelectorAll('.ant-select-selection-placeholder'));
+                    let sel = phs.find(e => (e.innerText||'').includes('规格类型'));
+                    let target = sel ? sel.closest('.ant-select') : null;
+                    // 策略2：文本含“请选择规格类型”的容器
+                    if (!target) {
+                        target = Array.from(document.querySelectorAll('.ant-select'))
+                            .find(s => (s.innerText||'').includes('请选择规格类型'));
+                    }
+                    // 策略3：最后一个可见的 ant-select
+                    if (!target) {
+                        const vis = Array.from(document.querySelectorAll('.ant-select')).filter(s => {
+                            const r = s.getBoundingClientRect(); return r.width > 5 && r.height > 5;
+                        });
+                        target = vis[vis.length - 1] || null;
+                    }
+                    if (!target) return 'no-select-any';
+                    const inp = target.querySelector('input');
+                    if (!inp) return 'no-input';
+                    inp.focus();
+                    inp.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));
+                    inp.click();
+                    return 'opened';
+                }""")
+            await asyncio.sleep(2)
+            picked = await self.page.evaluate(
+                """(want) => {
+                    const dds = Array.from(document.querySelectorAll('.ant-select-dropdown'))
+                        .filter(d => d.offsetParent !== null);
+                    const dd = dds[dds.length - 1];
+                    if (!dd) return 'no-visible-dropdown';
+                    const opts = Array.from(dd.querySelectorAll('.ant-select-item-option'));
+                    if (!opts.length) return 'no-options';
+                    const all = opts.map(o => (o.innerText||'').trim());
+                    const hit = opts.find(o => (o.innerText||'').trim() === want) || opts[0];
+                    hit.dispatchEvent(new MouseEvent('mousedown', {bubbles: true}));
+                    hit.click();
+                    return (hit.innerText||'').trim() + ' | 候选:' + all.join(',');
+                }""", spec_name)
+            logger.info(f"规格类型选择: open={opened} pick={picked}")
+        except Exception as e:
+            logger.warning(f"⚠️ 规格类型选择异常: {str(e)[:100]}")
+        await asyncio.sleep(2.5)
+
+        # 3) 填规格值（JS 原生 setter + React 事件）
+        try:
+            vres = await self.page.evaluate(
+                """(val) => {
+                    const inp = Array.from(document.querySelectorAll('input'))
+                        .find(i => (i.placeholder||'').includes('请输入具体'));
+                    if (!inp) return 'no-input';
+                    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                    setter.call(inp, val);
+                    inp.dispatchEvent(new Event('input', {bubbles: true}));
+                    inp.dispatchEvent(new Event('change', {bubbles: true}));
+                    inp.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', keyCode: 13, which: 13, bubbles: true}));
+                    inp.dispatchEvent(new KeyboardEvent('keyup', {key: 'Enter', keyCode: 13, which: 13, bubbles: true}));
+                    return 'set';
+                }""", spec_value)
+            logger.info(f"规格值设置: {vres}")
+        except Exception as e:
+            logger.warning(f"⚠️ 规格值设置异常: {str(e)[:100]}")
+        await asyncio.sleep(3)
+
+        # 4) 库存（JS 填 placeholder="0" 的可见输入框）
+        filled = 0
+        try:
+            filled = await self.page.evaluate(
+                """(stock) => {
+                    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                    let n = 0;
+                    document.querySelectorAll('input[placeholder="0"]').forEach(el => {
+                        const r = el.getBoundingClientRect();
+                        if (r.width > 10 && r.height > 5) {
+                            setter.call(el, String(stock));
+                            el.dispatchEvent(new Event('input', {bubbles: true}));
+                            el.dispatchEvent(new Event('change', {bubbles: true}));
+                            n++;
+                        }
+                    });
+                    return n;
+                }""", stock)
+        except Exception as e:
+            logger.warning(f"⚠️ 库存填写异常: {str(e)[:100]}")
+        if filled:
+            logger.info(f"✅ 库存已设为{stock}（{filled} 个规格行）")
+        else:
+            logger.warning("⚠️ 规格表未找到库存输入框，回退 _fill_stock")
+            await self._fill_stock()
+
+        # 5) 规格表里的价格（placeholder="0.00" 且当前为空）
+        try:
+            if price is not None:
+                n = await self.page.evaluate(
+                    """(price) => {
+                        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                        let n = 0;
+                        document.querySelectorAll('input[placeholder="0.00"]').forEach(el => {
+                            const r = el.getBoundingClientRect();
+                            if (r.width > 10 && r.height > 5 && (!el.value || el.value === '0.00')) {
+                                setter.call(el, String(price));
+                                el.dispatchEvent(new Event('input', {bubbles: true}));
+                                el.dispatchEvent(new Event('change', {bubbles: true}));
+                                n++;
+                            }
+                        });
+                        return n;
+                    }""", price)
+                if n:
+                    logger.info(f"✅ 规格价格已填 {price}（{n} 个）")
+        except Exception as e:
+            logger.warning(f"⚠️ 规格价格异常: {str(e)[:100]}")
+
+    async def _fill_stock(self, stock: int = 9999):
+        """填写库存（值来自素材配置，默认 9999）"""
+        logger.info(f"\n[步骤9.5] 📦 填写库存为{stock}（虚拟产品）...")
+
+        stock_selectors = [
+            'input[placeholder*="库存"]',
+            'input[aria-label*="库存"]',
+            'input[placeholder*="数量"]',
+            'input[aria-label*="数量"]',
+            'input[name*="stock"]',
+            'input[id*="stock"]',
+            '[class*="stock"] input',
+            '[class*="inventory"] input',
+            'input[placeholder="0"]',
+        ]
+
+        stock_input = None
+        for selector in stock_selectors:
+            try:
+                candidate = await self.page.wait_for_selector(selector, timeout=2000)
+                if candidate:
+                    stock_input = candidate
+                    logger.info(f"✅ 找到库存输入框: {selector}")
+                    break
+            except Exception:
+                continue
+
+        if stock_input:
+            try:
+                await stock_input.click()
+            except Exception:
+                pass
+            try:
+                await stock_input.fill("")
+            except Exception:
+                try:
+                    await stock_input.press("Control+A")
+                    await stock_input.press("Backspace")
+                except Exception:
+                    pass
+            await stock_input.fill(str(stock))
+            logger.info(f"✅ 库存已设为{stock}")
+        else:
+            logger.warning("⚠️ 未找到库存输入框，保持页面默认值")
+
+    async def _set_free_shipping(self):
+        """发货方式优先选无需快递（虚拟产品），找不到则回退包邮"""
+        logger.info("\n[步骤12] 🚚 设置发货方式为无需快递（虚拟产品）...")
+
+        no_express_selectors = [
+            'button:has-text("无需快递")',
+            'div:has-text("无需快递")',
+            'button:has-text("不用快递")',
+            'div:has-text("不用快递")',
+            'button:has-text("无需物流")',
+            'div:has-text("无需物流")',
+            'button:has-text("自提")',
+            'div:has-text("自提")',
+        ]
+
+        for selector in no_express_selectors:
+            try:
+                btn = await self.page.query_selector(selector)
+                if btn:
+                    await btn.click()
+                    logger.info(f"✅ 已选择无需快递: {selector}")
+                    return
+            except Exception:
+                continue
+
+        logger.info("ℹ️ 未找到无需快递选项，回退包邮...")
         free_shipping_selectors = [
             'button:has-text("包邮")',
             'div:has-text("包邮")',
@@ -1605,60 +1953,21 @@ class XianyuPublisher:
         """点击发布按钮并等待发布结果（按原项目流程）"""
         logger.info("\n[步骤14] 🎯 点击发布按钮...")
 
-        not_supported_warning = await self.page.query_selector('text=网页版暂不支持发布此分类')
-        if not_supported_warning:
-            logger.warning("⚠️ 检测到不支持的分类提示")
-            logger.warning("尝试选择其他分类...")
-
-            category_selectors = [
-                '[class*="categoryText"]',
-                '[class*="category"]',
-                'div:has-text("选择分类")',
-                'div:has-text("分类")',
-                '[role="combobox"]',
-            ]
-            category_list_selectors = [
-                'div.ant-select-dropdown',
-                '.ant-select-dropdown',
-                '[class*="categoryList"]',
-                '[class*="category-list"]',
-                '[role="listbox"]',
-                '.ant-dropdown',
-            ]
-            first_category_text = await self._get_current_category_text(category_selectors)
-            retry_options = await self._reopen_category_candidates(
-                category_selectors=category_selectors,
-                category_list_selectors=category_list_selectors,
-            )
-
-            if retry_options:
-                second_category_text, second_category = retry_options[0]
-                logger.info(f"选择第二个分类: {second_category_text}")
-                await second_category.click()
-                await asyncio.sleep(2)
-
-                not_supported_warning = await self.page.query_selector('text=网页版暂不支持发布此分类')
-                if not_supported_warning:
-                    logger.warning("⚠️ 第二个分类也不支持，尝试第三个分类")
-                    third_retry_options = await self._reopen_category_candidates(
-                        category_selectors=category_selectors,
-                        category_list_selectors=category_list_selectors,
-                        exclude_texts={text for text in [first_category_text, second_category_text] if text},
-                    )
-                    if third_retry_options:
-                        third_category_text, third_category = third_retry_options[0]
-                        logger.info(f"选择第三个分类: {third_category_text}")
-                        await third_category.click()
-                        await asyncio.sleep(2)
-                        not_supported_warning = await self.page.query_selector('text=网页版暂不支持发布此分类')
-                        if not_supported_warning:
-                            logger.error("❌ 前三个分类都不支持，继续尝试发布")
-                    else:
-                        logger.error("❌ 只有一个分类选项且不支持，继续尝试发布")
-                else:
-                    logger.info("✅ 第二个分类可用")
+        # 原来这里只 query_selector('text=...') 不判可见性，DOM 里有残留节点就命中，
+        # 然后盲点 retry_options[0]，会把已经选好的类目覆盖成另一个受限类目 → 改成按受限名单判断
+        if await self._category_restricted():
+            current_cat = await self._get_current_category_text(['[class*="categoryText"]', '[class*="category"]'])
+            blocked = any(b in (current_cat or '') for b in self.BLOCKED_CATEGORIES)
+            if current_cat and not blocked:
+                logger.info(f"当前分类「{current_cat}」不在受限名单，判定为残留提示，保留当前分类")
             else:
-                logger.error("❌ 未找到可重选的分类项，继续尝试发布")
+                logger.warning(f"⚠️ 当前分类「{current_cat or '未知'}」受网页版限制，改选 {self.PREFERRED_CATEGORY}")
+                if not await self._pick_category_by_name(self.PREFERRED_CATEGORY):
+                    logger.error(f"❌ 未能改选 {self.PREFERRED_CATEGORY}，继续尝试发布")
+                elif await self._category_restricted():
+                    logger.error(f"❌ {self.PREFERRED_CATEGORY} 仍受限，继续尝试发布")
+                else:
+                    logger.info(f"✅ 已改选 {self.PREFERRED_CATEGORY}")
 
         publish_selectors = [
             '.publish-button--KBpTVopQ',
@@ -1692,7 +2001,39 @@ class XianyuPublisher:
             publish_target = self.page.locator(publish_btn_selector).first if publish_btn_selector else None
             if publish_target is None:
                 raise Exception("未找到可用的发布按钮定位器")
-            await publish_target.click(timeout=5000)
+
+            click_success = False
+            try:
+                await publish_target.click(timeout=8000)
+                click_success = True
+            except Exception as e:
+                logger.warning(f"⚠️ Playwright 原生点击超时/失败: {e}")
+                # Fallback 1: JavaScript click (bypasses anti-bot detection)
+                try:
+                    await self.page.evaluate(
+                        f'''() => {{
+                            const btn = document.querySelector("{publish_btn_selector}");
+                            if (btn) {{ btn.click(); return true; }}
+                            return false;
+                        }}'''
+                    )
+                    click_success = True
+                    logger.info("✅ JavaScript 点击发布按钮成功")
+                except Exception as e2:
+                    logger.warning(f"⚠️ JS 点击也失败: {e2}")
+                    # Fallback 2: Dispatch mousedown/mouseup/click at bounding box
+                    try:
+                        box = await publish_target.bounding_box()
+                        if box:
+                            await self.page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+                            click_success = True
+                            logger.info("✅ 鼠标点击发布按钮成功")
+                    except Exception as e3:
+                        logger.error(f"❌ 所有点击方法都失败: {e3}")
+                        raise Exception(f"无法点击发布按钮: {e} / {e2} / {e3}")
+
+            if not click_success:
+                raise Exception("发布按钮点击失败，所有方法均失败")
 
             logger.info("\n[步骤15] ⏳ 等待发布完成...")
             logger.info("等待5秒，让发布请求处理...")
@@ -1701,8 +2042,13 @@ class XianyuPublisher:
             logger.info("检查页面是否跳转...")
             await asyncio.sleep(3)
 
-            screenshot_after = await self.page.screenshot(full_page=True)
-            result["screenshot"] = base64.b64encode(screenshot_after).decode()
+            # 截图只用于留证，executor 并不会读 result["screenshot"]；
+            # 而发布成功时页面正在跳转，full_page 截图会挂满 30 秒超时并把整次发布判成失败 → 加护栏
+            try:
+                screenshot_after = await self.page.screenshot(full_page=True, timeout=8000)
+                result["screenshot"] = base64.b64encode(screenshot_after).decode()
+            except Exception as shot_exc:
+                logger.warning(f"⚠️ 发布后截图失败（不影响发布判定）: {shot_exc}")
 
             current_url = self.page.url
             logger.info(f"当前页面URL: {current_url}")
@@ -1755,6 +2101,11 @@ class XianyuPublisher:
                 logger.warning("⚠️ 可能发布失败")
                 logger.warning("⚠️ 页面未跳转，仍停留在发布页")
                 logger.warning(f"⚠️ 当前URL: {current_url}")
+                logger.warning("⚠️ 页面文本片段: " + (page_text or "")[:800])
+                try:
+                    await self.page.screenshot(path="/app/static/publish_fail.png", full_page=False)
+                except Exception:
+                    pass
                 logger.warning("⚠️ 可能原因：宝贝所在地未设置、内容触发审核、账号风控等")
 
             else:

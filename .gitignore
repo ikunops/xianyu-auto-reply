@@ -269,3 +269,10 @@ AGENTS.md
 .codex/
 
 nuitka-crash-report.xml
+
+# 备份/日志（本地保留，不入库）
+*.bak_*
+*.bak-*
+*_backup.py
+docker-compose.yml.bak*
+*.log

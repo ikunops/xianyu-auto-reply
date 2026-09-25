@@ -13,6 +13,17 @@ const PREFIX = '/api/v1/product-publish'
 
 // ==================== 类型定义 ====================
 
+/** 素材的网盘来源：网盘目录 → 分享链接 → 卡券 这条链路的落点（正常一条素材只有一个来源） */
+export interface MaterialSource {
+  source_type: string
+  source_path: string
+  share_url: string
+  extract_code: string
+  link_status: string
+  last_check_at: string | null
+  is_primary: boolean
+}
+
 export interface ProductMaterial {
   id: number
   user_id: number
@@ -29,8 +40,13 @@ export interface ProductMaterial {
   brand?: string | null
   condition: string
   remark?: string | null
+  stock?: number | null
+  spec_name?: string | null
+  spec_value?: string | null
   created_at: string
   updated_at: string
+  published_accounts?: string[]
+  sources?: MaterialSource[]
 }
 
 export interface MaterialCreateParams {
@@ -46,6 +62,9 @@ export interface MaterialCreateParams {
   brand?: string
   condition?: string
   remark?: string
+  stock?: number
+  spec_name?: string
+  spec_value?: string
 }
 
 export interface MaterialListResponse {
@@ -118,7 +137,25 @@ export interface BatchStatusResponse {
     pending: number
     finished: boolean
     account_statuses: BatchAccountStatus[]
+    current?: {
+      account_id: string
+      title: string
+      material_id: number | null
+      stage: string
+      stage_at: string | null
+      elapsed_seconds: number | null
+    } | null
+    failures?: BatchPublishFailure[]
   }
+}
+
+export interface BatchPublishFailure {
+  account_id: string
+  title: string
+  error_message: string
+  stage?: string
+  stage_at?: string
+  at?: string
 }
 
 export interface PublishSingleResponseData {
@@ -190,6 +227,8 @@ export const publishSingle = (params: {
   price: number
   original_price?: number | null
   category?: string
+  /** 素材ID（从素材库导入时带上；带上才会在发布成功后自动绑定该素材的卡券） */
+  material_id?: number
   images: string[]        // 本地绝对路径，由 uploadProductImages 返回
   address?: string
   delivery_method?: string
@@ -203,6 +242,8 @@ export const publishSingle = (params: {
 export const publishBatch = (params: {
   account_ids: string[]
   material_ids: number[]
+  batch_size?: number
+  rest_seconds?: number
 }): Promise<PublishBatchResponse> => post(`${PREFIX}/publish/batch`, params)
 
 /** 查询批量发布任务状态 */

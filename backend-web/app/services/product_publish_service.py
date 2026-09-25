@@ -13,6 +13,7 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.models.product_material import ProductMaterial
+from common.models.publish_log import PublishLog
 
 
 # ==================== 素材库服务 ====================
@@ -23,6 +24,55 @@ class ProductMaterialService:
 
     def __init__(self, session: AsyncSession):
         self.session = session
+
+    async def _build_source_map(self, material_ids: list[int]) -> dict[int, list[dict]]:
+        """一次查出这批素材的网盘来源（目录 / 分享链接 / 提取码 / 链接状态）。
+
+        xy_material_sources 是「网盘目录 → 分享链接 → 卡券」这条链路的落点。
+        正常一条素材只有一个来源；历史脏数据里存在一素材多来源，故按主来源优先排序。
+        """
+        from sqlalchemy import text
+
+        ids = [int(m) for m in material_ids if m]
+        if not ids:
+            return {}
+        rows = (await self.session.execute(text(
+            "SELECT material_id, source_type, source_path, share_url, extract_code, "
+            "link_status, last_check_at, is_primary FROM xy_material_sources "
+            "WHERE material_id IN (%s) ORDER BY is_primary DESC, id ASC" % ",".join(str(m) for m in ids)
+        ))).all()
+        out: dict[int, list[dict]] = {}
+        for r in rows:
+            out.setdefault(int(r[0]), []).append({
+                "source_type": r[1] or "",
+                "source_path": r[2] or "",
+                "share_url": r[3] or "",
+                "extract_code": r[4] or "",
+                "link_status": r[5] or "",
+                "last_check_at": r[6].isoformat() if r[6] else None,
+                "is_primary": bool(r[7]),
+            })
+        return out
+
+    async def _build_published_map(self, material_ids: list[int]) -> dict[int, list[str]]:
+        """批量查询每条素材已被哪些账号成功发布过"""
+        if not material_ids:
+            return {}
+        stmt = (
+            select(PublishLog.material_id, PublishLog.account_id)
+            .where(
+                PublishLog.material_id.in_(material_ids),
+                PublishLog.status == 'success',
+            )
+            .distinct()
+        )
+        rows = (await self.session.execute(stmt)).all()
+        result: dict[int, list[str]] = {}
+        for mid, acc in rows:
+            if mid is not None:
+                result.setdefault(mid, []).append(acc)
+        return result
+
 
     async def create(self, user_id: int, data: dict) -> ProductMaterial:
         """创建素材"""
@@ -38,7 +88,7 @@ class ProductMaterialService:
             original_price=float(data["original_price"]) if data.get("original_price") else None,
             category=data.get("category"),
             images=data.get("images", []),
-            delivery_method=data.get("delivery_method", "express"),
+            delivery_method=data.get("delivery_method", "pickup"),
             postage=float(data.get("postage", 0)),
             address=data.get("address"),
             brand=data.get("brand"),
@@ -91,8 +141,12 @@ class ProductMaterialService:
         )
         rows = (await self.session.execute(stmt)).scalars().all()
 
+        material_ids = [r.id for r in rows]
+        pub_map = await self._build_published_map(material_ids)
+        src_map = await self._build_source_map(material_ids)
+
         return {
-            "list": [_material_to_dict(r) for r in rows],
+            "list": [_material_to_dict(r, pub_map.get(r.id, []), src_map.get(r.id, [])) for r in rows],
             "total": total,
             "page": page,
             "page_size": page_size,
@@ -177,7 +231,8 @@ class ProductMaterialService:
 
 # ==================== 工具函数 ====================
 
-def _material_to_dict(m: ProductMaterial) -> dict:
+def _material_to_dict(m: ProductMaterial, published_accounts: list[str] = None,
+                      sources: list[dict] = None) -> dict:
     """将素材模型转为字典"""
     return {
         "id": m.id,
@@ -188,6 +243,9 @@ def _material_to_dict(m: ProductMaterial) -> dict:
         "original_price": float(m.original_price) if m.original_price is not None else None,
         "category": m.category,
         "images": m.images or [],
+        "stock": getattr(m, "stock", None) or 9999,
+        "spec_name": getattr(m, "spec_name", None) or "份数",
+        "spec_value": getattr(m, "spec_value", None) or "1份",
         "delivery_method": m.delivery_method,
         "postage": float(m.postage) if m.postage is not None else 0,
         "address": m.address,
@@ -196,4 +254,6 @@ def _material_to_dict(m: ProductMaterial) -> dict:
         "remark": m.remark,
         "created_at": safe_isoformat(m.created_at),
         "updated_at": safe_isoformat(m.updated_at),
+        "published_accounts": published_accounts or [],
+        "sources": sources or [],
     }

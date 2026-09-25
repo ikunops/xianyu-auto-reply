@@ -43,12 +43,15 @@ class MaterialCreateRequest(BaseModel):
     original_price: Optional[float] = Field(None, description="原价（划线价）")
     category: Optional[str] = Field(None, max_length=100, description="商品分类")
     images: List[str] = Field(default=[], description="图片URL列表（最多9张）")
-    delivery_method: str = Field("express", description="发货方式：express/pickup")
+    delivery_method: str = Field("pickup", description="发货方式：express/pickup")
     postage: float = Field(0, ge=0, description="邮费，0表示包邮")
     address: Optional[str] = Field(None, max_length=200, description="宝贝所在地")
     brand: Optional[str] = Field(None, max_length=100, description="品牌")
     condition: str = Field("全新", description="成色")
     remark: Optional[str] = Field(None, max_length=500, description="备注（内部使用）")
+    stock: int = Field(9999, ge=1, le=999999, description="库存（上架数量）")
+    spec_name: Optional[str] = Field("份数", max_length=32, description="规格名（闲鱼库存需挂在规格上）")
+    spec_value: Optional[str] = Field("1份", max_length=64, description="规格值")
 
 
 class MaterialUpdateRequest(BaseModel):
@@ -65,6 +68,9 @@ class MaterialUpdateRequest(BaseModel):
     brand: Optional[str] = None
     condition: Optional[str] = None
     remark: Optional[str] = None
+    stock: Optional[int] = Field(None, ge=1, le=999999, description="库存（上架数量）")
+    spec_name: Optional[str] = Field(None, max_length=32)
+    spec_value: Optional[str] = Field(None, max_length=64)
 
 
 class PublishSingleRequest(BaseModel):
@@ -77,16 +83,21 @@ class PublishSingleRequest(BaseModel):
     category: Optional[str] = Field(None, description="商品分类")
     images: List[str] = Field(..., min_length=1, description="图片本地路径列表（至少1张）")
     address: Optional[str] = None
-    delivery_method: str = Field("express", description="发货方式：express/pickup")
+    delivery_method: str = Field("pickup", description="发货方式：express/pickup")
     postage: float = Field(0, ge=0, description="邮费，0表示包邮")
     brand: Optional[str] = Field(None, description="品牌")
     condition: str = Field("全新", description="成色")
+    material_id: Optional[int] = Field(
+        None, description="素材ID（从素材库导入时带上；带上才会在发布成功后自动绑定该素材的卡券）"
+    )
 
 
 class BatchPublishRequest(BaseModel):
     """批量发布请求"""
     account_ids: List[str] = Field(..., min_length=1, description="账号ID列表")
     material_ids: List[int] = Field(..., min_length=1, description="素材ID列表")
+    batch_size: int = Field(0, ge=0, description="每批发布条数，0=不分批")
+    rest_seconds: int = Field(0, ge=0, description="批间冷却秒数")
 
 
 # ==================== 素材库接口 ====================
@@ -268,6 +279,8 @@ async def publish_batch(
         account_ids=req.account_ids,
         materials=materials,
         batch_id=batch_id,
+        batch_size=req.batch_size,
+        rest_seconds=req.rest_seconds,
     )
 
     return ApiResponse(
@@ -323,12 +336,75 @@ async def get_batch_status(
     failed = counts.get("failed", 0)
     publishing = counts.get("publishing", 0)
     pending = counts.get("pending", 0)
+
+    failures_stmt = (
+        select(
+            PublishLog.account_id,
+            PublishLog.title,
+            PublishLog.error_message,
+            PublishLog.updated_at,
+            PublishLog.stage,
+            PublishLog.stage_at,
+        )
+        .where(
+            PublishLog.batch_id == batch_id,
+            PublishLog.user_id == current_user.id,
+            PublishLog.status == "failed",
+        )
+        .order_by(PublishLog.id.desc())
+        .limit(50)
+    )
+    failure_rows = (await session.execute(failures_stmt)).all()
+    failures = [
+        {
+            "account_id": row.account_id,
+            "title": row.title,
+            "error_message": (row.error_message or "未记录失败原因").strip(),
+            "stage": row.stage or "",
+            "stage_at": str(row.stage_at or ""),
+            "at": str(row.updated_at or ""),
+        }
+        for row in failure_rows
+    ]
+
     batch_snapshot = await PublishBatchStatusService.get_batch_snapshot(batch_id)
 
     if batch_snapshot is None:
         if total == 0:
             return ApiResponse(success=False, message="批量任务不存在或状态已失效")
-        return ApiResponse(success=False, message="批量任务状态已失效，请到发布日志查看执行结果")
+        # 快照过期：进度看不了了，但发布日志还在，至少把每个账号的成败和失败节点给出来
+        fallback_statuses: List[Dict[str, Any]] = []
+        for account_id, status_map in account_count_map.items():
+            fallback_statuses.append(
+                {
+                    "account_id": account_id,
+                    "total": sum(status_map.values()),
+                    "success": int(status_map.get("success", 0)),
+                    "failed": int(status_map.get("failed", 0)),
+                    "publishing": int(status_map.get("publishing", 0)),
+                    "pending": int(status_map.get("pending", 0)),
+                    "sync_status": "unknown",
+                    "sync_message": unknown_sync_message,
+                    "sync_total_count": 0,
+                    "sync_saved_count": 0,
+                }
+            )
+        return ApiResponse(
+            success=True,
+            message="批量任务进度快照已过期，以下为发布日志里的最终结果",
+            data={
+                "batch_id": batch_id,
+                "total": total,
+                "success": success,
+                "failed": failed,
+                "publishing": publishing,
+                "pending": pending,
+                "finished": True,
+                "account_statuses": fallback_statuses,
+                "current": None,
+                "failures": failures,
+            },
+        )
 
     account_statuses: List[Dict[str, Any]] = []
     if batch_snapshot:
@@ -385,6 +461,31 @@ async def get_batch_status(
                     "sync_saved_count": 0,
                 }
             )
+    current_stmt = (
+        select(PublishLog)
+        .where(
+            PublishLog.batch_id == batch_id,
+            PublishLog.user_id == current_user.id,
+            PublishLog.status == "publishing",
+        )
+        .order_by(PublishLog.updated_at.desc())
+        .limit(1)
+    )
+    current_row = (await session.execute(current_stmt)).scalars().first()
+    current_info = None
+    if current_row is not None:
+        from datetime import datetime as _dt
+
+        _anchor = current_row.stage_at or current_row.created_at
+        current_info = {
+            "account_id": current_row.account_id,
+            "title": current_row.title,
+            "material_id": current_row.material_id,
+            "stage": current_row.stage or "prepare",
+            "stage_at": str(current_row.stage_at) if current_row.stage_at else None,
+            "elapsed_seconds": int((_dt.now() - _anchor).total_seconds()) if _anchor else None,
+        }
+
     sync_finished = all(
         account_status.get("sync_status") in {"success", "failed", "skipped", "unknown"}
         for account_status in account_statuses
@@ -402,6 +503,8 @@ async def get_batch_status(
             "pending": pending,
             "finished": total > 0 and (publishing + pending) == 0 and sync_finished,
             "account_statuses": account_statuses,
+            "current": current_info,
+            "failures": failures,
         },
     )
 
@@ -526,6 +629,8 @@ async def _run_batch_publish_background(
     account_ids: List[str],
     materials: List[dict],
     batch_id: str,
+    batch_size: int = 0,
+    rest_seconds: int = 0,
 ) -> None:
     """后台异步执行批量发布任务"""
     from common.db.session import async_session_maker
@@ -541,6 +646,8 @@ async def _run_batch_publish_background(
                 account_ids=account_ids,
                 materials=materials,
                 batch_id=batch_id,
+                batch_size=batch_size,
+                rest_seconds=rest_seconds,
             )
         except Exception as e:
             logger.error(f"批量发布后台任务异常: {e}\n{traceback.format_exc()}")
