@@ -2112,6 +2112,29 @@ class XianyuPublisher:
                 logger.warning(f"⚠️ 当前URL: {current_url}")
                 logger.warning("⚠️ 页面文本片段: " + (page_text or "")[:800])
                 try:
+                    errs = await self.page.evaluate(
+                        """() => {
+                            const out = [];
+                            const sels = ['.ant-form-item-explain-error', '[class*="explain-error"]',
+                                          '[class*="error"]', '[class*="toast"]', '[class*="message"]',
+                                          '[role="alert"]'];
+                            sels.forEach(s => {
+                                try {
+                                    document.querySelectorAll(s).forEach(e => {
+                                        const t = (e.innerText || '').trim();
+                                        if (t && t.length <= 120 && !out.includes(t)) out.push(t);
+                                    });
+                                } catch (err) {}
+                            });
+                            return out.slice(0, 20);
+                        }""")
+                    if errs:
+                        logger.warning(f"⚠️ 页面校验/提示文本: {errs}")
+                    else:
+                        logger.warning("⚠️ 页面上未找到校验/提示文本（可能是风控或无提示拦截）")
+                except Exception as _e:
+                    logger.warning(f"抓取页面提示失败: {str(_e)[:80]}")
+                try:
                     await self.page.screenshot(path="/app/static/publish_fail.png", full_page=False)
                 except Exception:
                     pass
