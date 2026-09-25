@@ -15,6 +15,7 @@ import { useUIStore } from '@/store/uiStore'
 import { publishSingle, getMaterials, uploadProductImages, type ProductMaterial } from '@/api/productPublish'
 import { getAccountDetails } from '@/api/accounts'
 import { PageLoading } from '@/components/common/Loading'
+import { mediaUrl } from '@/utils/mediaUrl'
 
 const CATEGORIES = ['数码家电', '服饰鞋包', '家居日用', '图书音像', '美妆个护', '母婴用品', '运动户外', '食品生鲜', '虚拟商品', '其他']
 const CONDITIONS = ['全新', '99新', '95新', '9成新', '8成新', '7成新以下']
@@ -31,6 +32,7 @@ interface PublishForm {
   postage: string
   brand: string
   condition: string
+  material_id?: number
 }
 
 /** 从素材库选择弹窗 */
@@ -63,7 +65,7 @@ function MaterialPickerModal({ onSelect, onClose }: { onSelect: (m: ProductMater
                   className="flex items-center gap-3 p-3 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer transition-colors"
                   onClick={() => onSelect(m)}>
                   {m.images?.[0] ? (
-                    <img src={m.images[0]} alt={m.title} className="w-12 h-12 object-cover rounded-lg flex-shrink-0" />
+                    <img src={mediaUrl(m.images[0])} alt={m.title} className="w-12 h-12 object-cover rounded-lg flex-shrink-0" />
                   ) : (
                     <div className="w-12 h-12 bg-slate-100 dark:bg-slate-700 rounded-lg flex items-center justify-center text-slate-400 text-xs flex-shrink-0">无图</div>
                   )}
@@ -145,7 +147,7 @@ export function ProductPublish() {
   /** 从素材库导入 */
   const applyMaterial = (m: ProductMaterial) => {
     setForm(f => ({
-      ...f, title: m.title, description: m.description, price: String(m.price),
+      ...f, material_id: m.id, title: m.title, description: m.description, price: String(m.price),
       original_price: m.original_price ? String(m.original_price) : '',
       category: m.category || '', address: m.address || '',
       delivery_method: (m.delivery_method as 'express' | 'pickup') || 'express',
@@ -153,7 +155,7 @@ export function ProductPublish() {
     }))
     const urls = m.images || []
     setImagePaths(urls)
-    setImagePreviews(urls)
+    setImagePreviews(urls.map(mediaUrl))
     setShowPicker(false)
     addToast({ type: 'success', message: '已从素材库导入' })
   }
@@ -175,6 +177,7 @@ export function ProductPublish() {
         category: form.category || undefined, images: imagePaths, address: form.address || undefined,
         delivery_method: form.delivery_method, postage: parseFloat(form.postage) || 0,
         brand: form.brand || undefined, condition: form.condition,
+        material_id: form.material_id || undefined,
       })
       const message = res.message || (res.success ? '商品发布成功' : '发布失败')
       setResult({
@@ -211,9 +214,16 @@ export function ProductPublish() {
           <h1 className="page-title">单品发布</h1>
           <p className="page-description">填写商品信息，通过 Playwright 自动发布到闲鱼</p>
         </div>
-        <button className="btn-ios-secondary" onClick={() => setShowPicker(true)}>
-          <FolderOpen className="w-4 h-4" />从素材库导入
-        </button>
+        <div className="flex items-center gap-3 flex-wrap">
+          {form.material_id != null && (
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              已关联素材 #{form.material_id}：发布成功后会自动把它的卡券绑到新商品
+            </span>
+          )}
+          <button className="btn-ios-secondary" onClick={() => setShowPicker(true)}>
+            <FolderOpen className="w-4 h-4" />从素材库导入
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">

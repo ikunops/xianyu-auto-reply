@@ -17,9 +17,19 @@ import { getMaterials, deleteMaterial, batchDeleteMaterials, type ProductMateria
 import { PageLoading } from '@/components/common/Loading'
 import { ConfirmModal } from '@/components/common/ConfirmModal'
 import { MaterialFormModal } from './MaterialFormModal'
+import { mediaUrl } from '@/utils/mediaUrl'
 
 const CATEGORIES = ['数码家电', '服饰鞋包', '家居日用', '图书音像', '美妆个护', '母婴用品', '运动户外', '食品生鲜', '虚拟商品', '其他']
 const CONDITIONS = ['全新', '99新', '95新', '9成新', '8成新', '7成新以下']
+
+/** 链接状态标签：库里 link_status 目前只有 alive / unknown，其余值给以后巡检写入时用 */
+const LINK_LABEL: Record<string, { label: string; cls: string }> = {
+  alive: { label: '链接有效', cls: 'text-green-600 dark:text-green-400' },
+  unknown: { label: '未巡检', cls: 'text-slate-400' },
+  invalid: { label: '已失效', cls: 'text-red-500 dark:text-red-400' },
+  dead: { label: '已失效', cls: 'text-red-500 dark:text-red-400' },
+  needs_code: { label: '需提取码', cls: 'text-amber-600 dark:text-amber-400' },
+}
 
 export function ProductMaterials() {
   const { addToast } = useUIStore()
@@ -249,7 +259,7 @@ export function ProductMaterials() {
           <span className="badge-primary">共 {total} 条</span>
         </div>
         <div className="flex-1 overflow-x-auto overflow-y-auto">
-          <table className="table-ios">
+          <table className="table-ios table-fixed">
             <thead className="sticky top-0 bg-white dark:bg-slate-800 z-10">
               <tr>
                 <th className="w-10">
@@ -260,23 +270,24 @@ export function ProductMaterials() {
                     className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                   />
                 </th>
-                {isAdmin && <th>所属用户</th>}
-                <th>标题</th>
-                <th>价格</th>
-                <th>分类</th>
-                <th>成色</th>
-                <th>图片</th>
-                <th>创建时间</th>
-                <th>操作</th>
+                {isAdmin && <th className="w-[88px] whitespace-nowrap">所属用户</th>}
+                <th className="w-[22%]">标题</th>
+                <th className="w-[27%]">来源</th>
+                <th className="w-[80px] whitespace-nowrap">价格</th>
+                <th className="w-[96px] whitespace-nowrap">分类</th>
+                <th className="w-[72px] whitespace-nowrap">成色</th>
+                <th className="w-[140px] whitespace-nowrap">图片</th>
+                <th className="w-[152px] whitespace-nowrap">创建时间</th>
+                <th className="w-[96px] whitespace-nowrap">操作</th>
               </tr>
             </thead>
             <tbody>
               {tableLoading ? (
-                <tr><td colSpan={isAdmin ? 9 : 8} className="text-center py-12">
+                <tr><td colSpan={isAdmin ? 10 : 9} className="text-center py-12">
                   <RefreshCw className="w-6 h-6 animate-spin text-blue-500 mx-auto" />
                 </td></tr>
               ) : materials.length === 0 ? (
-                <tr><td colSpan={isAdmin ? 9 : 8} className="text-center py-12 text-slate-400">
+                <tr><td colSpan={isAdmin ? 10 : 9} className="text-center py-12 text-slate-400">
                   <div className="flex flex-col items-center gap-2">
                     <Image className="w-12 h-12 text-slate-300" />
                     <p>暂无素材，点击「新建素材」添加</p>
@@ -297,18 +308,56 @@ export function ProductMaterials() {
                       {m.username || '-'}
                     </td>
                   )}
-                  <td className="max-w-[200px]">
+                  <td className="align-top">
                     <span className="truncate block font-medium text-slate-800 dark:text-slate-100" title={m.title}>{m.title}</span>
                   </td>
-                  <td>
+                  <td className="align-top">
+                    {(m.sources || []).length === 0 ? (
+                      <span className="text-xs text-amber-600 dark:text-amber-400">未登记来源</span>
+                    ) : (
+                      <div className="flex flex-col gap-0.5">
+                        {(m.sources || []).slice(0, 1).map(s => (
+                          <div key={s.share_url || s.source_path}>
+                            <span
+                              className="truncate block text-xs text-slate-600 dark:text-slate-300"
+                              title={s.source_path || '（无目录，仅分享链接）'}
+                            >
+                              {s.source_path || '（无目录，仅分享链接）'}
+                            </span>
+                            <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                              <span className={LINK_LABEL[s.link_status]?.cls || 'text-slate-400'}>
+                                {LINK_LABEL[s.link_status]?.label
+                                  || (s.link_status ? '状态：' + s.link_status : '未巡检')}
+                              </span>
+                              {s.extract_code && <span>提取码 {s.extract_code}</span>}
+                              {s.last_check_at && <span>{new Date(s.last_check_at).toLocaleDateString('zh-CN')}</span>}
+                              <a
+                                href={s.share_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-blue-500 hover:underline"
+                                onClick={e => e.stopPropagation()}
+                              >链接</a>
+                            </span>
+                          </div>
+                        ))}
+                        {(m.sources || []).length > 1 && (
+                          <span className="text-[11px] text-amber-600 dark:text-amber-400">
+                            共 {(m.sources || []).length} 条来源（异常，应只有 1 条）
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </td>
+                  <td className="whitespace-nowrap">
                     <span className="text-amber-600 font-medium">{m.price}</span>
                     {m.original_price && (
                       <span className="text-xs text-slate-400 line-through ml-1">{m.original_price}</span>
                     )}
                   </td>
-                  <td className="text-slate-500">{m.category || '-'}</td>
-                  <td><span className="badge-gray">{m.condition}</span></td>
-                  <td><span className="badge-info">{(m.images || []).length} 张</span></td>
+                  <td className="text-slate-500 whitespace-nowrap">{m.category || '-'}</td>
+                  <td className="whitespace-nowrap"><span className="badge-gray">{m.condition}</span></td>
+                  <td className="whitespace-nowrap">{(m.images || []).slice(0, 3).map((u, i) => (<a key={i} href={mediaUrl(u)} target="_blank" rel="noreferrer"><img src={mediaUrl(u)} alt="" className="w-9 h-9 object-cover rounded-md inline-block mr-1 border border-slate-200 dark:border-slate-600 hover:opacity-80" /></a>))}{(m.images || []).length > 3 && <span className="text-xs text-slate-400">+{(m.images || []).length - 3}</span>}{!(m.images || []).length && <span className="text-xs text-slate-400">无图</span>}</td>
                   <td className="text-sm text-slate-500 whitespace-nowrap">
                     {m.created_at ? new Date(m.created_at).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-'}
                   </td>

@@ -10,6 +10,8 @@ services:
     image: ${MYSQL_IMAGE:-registry.cn-shanghai.aliyuncs.com/zhinian-software/xianyu-mysql:8.0}
     container_name: xianyu-mysql
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:13306:3306"
     environment:
       - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-xianyu@2026}
       - MYSQL_DATABASE=${MYSQL_DATABASE:-xianyu_data}
@@ -125,6 +127,32 @@ services:
       dockerfile: websocket/Dockerfile
     container_name: xianyu-websocket
     restart: unless-stopped
+    # PID 1 交给 tini：解滑块起的 chromium 孙进程在主进程死后会变孤儿，没有 init 就没人回收
+    init: true
+    # 我们这个进程直接起的 chromium，tini 管不到（父进程还活着），必须自己 waitpid 回收，
+    # 否则每起一次浏览器漏一个僵尸（实测 34 小时攒 10,468 个，把 4 核机拖到负载 91、
+    # 内存只剩 111MB，发布页面每一步都超时）。启动真正入口前先挂一个后台回收线程。
+    command:
+      - python
+      - -c
+      - |
+        import os, threading, time
+
+        def _reap_loop(interval=30):
+            while True:
+                try:
+                    while True:
+                        pid, _ = os.waitpid(-1, os.WNOHANG)
+                        if pid <= 0:
+                            break
+                except Exception:
+                    pass
+                time.sleep(interval)
+
+        threading.Thread(target=_reap_loop, daemon=True, name="child-reaper").start()
+
+        import runpy
+        runpy.run_path("/app/websocket/main.py", run_name="__main__")
     environment:
       - ENVIRONMENT=production
       - MYSQL_HOST=mysql

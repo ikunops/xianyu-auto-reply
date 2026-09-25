@@ -22,7 +22,10 @@ from app.services.publish_batch_status_service import PublishBatchStatusService
 from app.services.item_service import ItemService
 from common.models.publish_log import PublishLog
 from common.models.xy_account import XYAccount
-from common.services.publish_execution_service import execute_single_publish
+from common.services.publish_execution_service import (
+    _bind_material_card_after_publish,
+    execute_single_publish,
+)
 from common.services.xianyu_publish_service import create_xianyu_publisher
 
 
@@ -229,8 +232,13 @@ class PublishExecutorService:
         account_ids: List[str],
         materials: List[dict],
         batch_id: str = None,
+        batch_size: int = 0,
+        rest_seconds: int = 0,
     ) -> Dict[str, Any]:
-        """批量发布（多账号×多商品，每账号复用同一浏览器实例）"""
+        """批量发布（多账号×多商品，每账号复用同一浏览器实例）
+
+        batch_size>0 时每发完 N 条休息 rest_seconds 秒再继续（降低短时间密集上架的量）。
+        """
         if not batch_id:
             batch_id = str(uuid.uuid4())
         log_svc = PublishLogService(self.session)
@@ -239,6 +247,7 @@ class PublishExecutorService:
         total = len(account_ids) * len(materials)
         success_count = 0
         failed_count = 0
+        card_bound_count = 0
         log_ids: List[int] = []
 
         logger.info(f"批量发布开始: batch_id={batch_id}, 账号数={len(account_ids)}, 商品数={len(materials)}")
@@ -274,6 +283,11 @@ class PublishExecutorService:
             account_success_count = 0
             queue_state = await address_svc.build_queue_state(account_id)
             publisher = create_xianyu_publisher(static_root=STATIC_ROOT)
+            chunk_size = batch_size if batch_size and batch_size > 0 else len(materials)
+            rest_after = {
+                i for i in range(len(materials))
+                if (i + 1) % chunk_size == 0 and (i + 1) < len(materials)
+            }
             try:
                 for idx, material in enumerate(materials):
                     try:
@@ -310,11 +324,22 @@ class PublishExecutorService:
 
                     try:
                         reuse = idx > 0
+                        async def _on_stage(stage: str, _log_id=log.id):
+                            from sqlalchemy import update as _sa_update, func as _sa_func
+
+                            await self.session.execute(
+                                _sa_update(PublishLog)
+                                .where(PublishLog.id == _log_id)
+                                .values(stage=stage, stage_at=_sa_func.now())
+                            )
+                            await self.session.commit()
+
                         result = await publisher.publish_item(
                             item_data=publish_material,
                             cookie_data={"cookie": cookies_str},
                             reuse_browser=reuse,
                             should_close=False,
+                            on_stage=_on_stage,
                         )
 
                         if result.get("success"):
@@ -326,6 +351,18 @@ class PublishExecutorService:
                                 item_url=result.get("item_url"),
                                 item_id=result.get("item_id"),
                             )
+                            bind_info = await _bind_material_card_after_publish(
+                                user_id=user_id,
+                                material_id=material.get("id"),
+                                item_id=result.get("item_id"),
+                            )
+                            card_bound_count += int(bind_info.get("card_bound") or 0)
+                            if bind_info.get("card_bind_message"):
+                                logger.info(
+                                    f"批量发布自动绑卡券 account={account_id} "
+                                    f"material={material.get('id')} item={result.get('item_id')}: "
+                                    f"{bind_info['card_bind_message']}"
+                                )
                         else:
                             failed_count += 1
                             await log_svc.update_log(
@@ -336,6 +373,11 @@ class PublishExecutorService:
 
                         if idx < len(materials) - 1:
                             await asyncio.sleep(3)
+                        if idx in rest_after and rest_seconds > 0:
+                            logger.info(
+                                f"批量发布: 已发 {idx + 1}/{len(materials)} 条，批间冷却 {rest_seconds}s"
+                            )
+                            await asyncio.sleep(rest_seconds)
 
                     except Exception as exc:
                         failed_count += 1
@@ -382,6 +424,7 @@ class PublishExecutorService:
             "total": total,
             "success_count": success_count,
             "failed_count": failed_count,
+            "card_bound_count": card_bound_count,
             "log_ids": log_ids,
         }
 

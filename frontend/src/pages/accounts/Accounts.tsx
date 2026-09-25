@@ -13,6 +13,7 @@ import { useMenuVisibilityStore } from '@/store/menuVisibilityStore'
 import { PageLoading } from '@/components/common/Loading'
 import { ConfirmModal } from '@/components/common/ConfirmModal'
 import { DeliveryBlockRulesModal } from './DeliveryBlockRulesModal'
+import { PermissionCheckModal } from './PermissionCheckModal'
 import { RefundCancelModal } from './RefundCancelModal'
 import type { AccountDetail } from '@/types'
 
@@ -250,6 +251,7 @@ export function Accounts() {
   const [batchAction, setBatchAction] = useState<'enable' | 'disable' | 'close-notice' | 'clear-token' | 'renew-login' | 'batch-rate' | null>(null)
   const [exporting, setExporting] = useState(false)
   const [showImportModal, setShowImportModal] = useState(false)
+  const [showPermModal, setShowPermModal] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importing, setImporting] = useState(false)
 
@@ -1980,7 +1982,7 @@ export function Accounts() {
       {/* Accounts List */}
       <div className="vben-card flex flex-col" style={{ height: 'calc(100vh - 280px)', minHeight: '400px' }}>
         <div className="vben-card-header flex-shrink-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-shrink-0">
             <h2 className="vben-card-title">账号列表</h2>
             <span className="badge-primary">{pagination.total} 个账号</span>
           </div>
@@ -2043,6 +2045,13 @@ export function Accounts() {
             >
               {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
               导出
+            </button>
+            <button
+              onClick={() => setShowPermModal(true)}
+              className="btn-ios-secondary btn-sm text-indigo-600"
+            >
+              <ShieldCheck className="w-4 h-4" />
+              权限检测
             </button>
             <button
               onClick={() => setShowImportModal(true)}
@@ -4122,6 +4131,11 @@ export function Accounts() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* 账号权限检测弹窗 */}
+      {showPermModal && (
+        <PermissionCheckModal onClose={() => setShowPermModal(false)} />
       )}
 
       {/* 禁止发货规则设置弹窗 */}

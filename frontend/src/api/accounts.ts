@@ -767,3 +767,28 @@ export const importAccountsExcel = async (file: File, enableAll: boolean): Promi
   })
   return response.json()
 }
+
+
+// ===== 账号商业身份（卖家工作台权限）检测 =====
+export interface AccountIdentityItem {
+  bizCode?: string | null
+  bizName?: string | null
+  bizIdentityStatus?: number | null
+}
+
+export interface AccountPermissionItem {
+  pk?: number
+  account_id?: string
+  note?: string | null
+  workbench_enabled?: boolean
+  identities?: AccountIdentityItem[]
+  seller_level?: string | null
+  identity_ret?: string
+  quota_ret?: string
+  error?: string | null
+}
+
+/** 只读检测：哪个账号持有「鱼小铺专业卖家工作台」身份、卖家等级多少 */
+export const checkAccountPermissions = async (): Promise<ApiResponse<AccountPermissionItem[]>> => {
+  return post<ApiResponse<AccountPermissionItem[]>>(`${COOKIE_PREFIX}/permission-check`, {})
+}

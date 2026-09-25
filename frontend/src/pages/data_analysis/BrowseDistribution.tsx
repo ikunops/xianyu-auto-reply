@@ -10,6 +10,12 @@ import { getAccountDetails } from '@/api/accounts'
 import { getBrowseSummary, type BrowseSummaryRequest, type ProfileItem } from '@/api/data_analysis'
 import { useUIStore } from '@/store/uiStore'
 import type { AccountDetail } from '@/types'
+import {
+  pickDefaultAccountId,
+  rememberAccountChoice,
+  rememberWorkingAccount,
+  sortAccountsForPicker,
+} from '@/utils/accountPicker'
 
 /** 时间范围选项 */
 const DATE_TYPE_OPTIONS = [
@@ -88,6 +94,7 @@ export function BrowseDistribution() {
       try {
         const data = await getAccountDetails()
         setAccounts(data)
+        setSelectedAccountId((prev) => prev ?? pickDefaultAccountId(data))
       } catch {
         addToast({ type: 'error', message: '加载账号列表失败' })
       }
@@ -121,6 +128,7 @@ export function BrowseDistribution() {
       }
       const result = await getBrowseSummary(params)
       if (result.success && result.data) {
+        rememberWorkingAccount(selectedAccountId)
         setBrowseData(result.data.data || null)
       } else {
         addToast({ type: 'error', message: result.message || '获取流量分布失败' })
@@ -153,10 +161,14 @@ export function BrowseDistribution() {
           <select
             className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
             value={selectedAccountId ?? ''}
-            onChange={(e) => setSelectedAccountId(Number(e.target.value))}
+            onChange={(e) => {
+              const id = Number(e.target.value)
+              setSelectedAccountId(id)
+              rememberAccountChoice(id)
+            }}
           >
             <option value="" disabled>选择账号</option>
-            {[...accounts].sort((a, b) => (a.enabled === b.enabled ? 0 : a.enabled ? -1 : 1)).map((acc) => (
+            {sortAccountsForPicker(accounts).map((acc) => (
               <option key={acc.pk} value={acc.pk}>
                 {acc.note || acc.id || `账号${acc.pk}`}{acc.enabled ? '' : '（已禁用）'}
               </option>

@@ -11,6 +11,8 @@ export interface FetchItemsSummaryResponse extends ApiResponse {
   success_account_count?: number
   failed_account_count?: number
   failed_accounts?: string[]
+  /** 本次从闲鱼实际抓到的商品（用于判断哪些本地商品已不在在售列表里） */
+  items?: Array<{ item_id?: string; id?: string | number }>
 }
 
 // 获取商品列表

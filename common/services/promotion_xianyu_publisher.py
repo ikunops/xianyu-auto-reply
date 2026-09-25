@@ -70,9 +70,9 @@ class PromotionXianyuPublisher(BaseXianyuPublisher):
         if not self.page:
             raise Exception("浏览器页面未初始化")
 
-        stock = int(item_data.get("stock", 999) or 999)
+        stock = int(item_data.get("stock", 9999) or 9999)
         if stock <= 0:
-            stock = 999
+            stock = 9999
 
         logger.info("\n[新增字段] 📦 输入库存...")
         logger.info(f"库存: {stock}")

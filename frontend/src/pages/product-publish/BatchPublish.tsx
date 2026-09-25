@@ -8,11 +8,13 @@
  * 4. 轮询任务进度，展示完成状态
  */
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Layers, CheckCircle, XCircle, Clock, Play, Loader2 } from 'lucide-react'
 import { useUIStore } from '@/store/uiStore'
 import { publishBatch, getBatchStatus, getMaterials, type ProductMaterial, type BatchAccountStatus } from '@/api/productPublish'
 import { getAccountDetails } from '@/api/accounts'
+import { mediaUrl } from '@/utils/mediaUrl'
 
 interface BatchProgress {
   batch_id: string
@@ -23,17 +25,44 @@ interface BatchProgress {
   pending: number
   finished: boolean
   account_statuses: BatchAccountStatus[]
+  current?: {
+    account_id: string
+    title: string
+    material_id: number | null
+    stage: string
+    stage_at: string | null
+    elapsed_seconds: number | null
+  } | null
+  failures?: { account_id: string; title: string; error_message: string; at?: string; stage?: string; stage_at?: string }[]
 }
+
+const STAGE_LABELS: Record<string, string> = {
+  prepare: '打开发布页',
+  content: '填内容',
+  category: '选分类',
+  fields: '价格库存',
+  address: '所在地',
+  submit: '提交',
+}
+const stageLabelOf = (key?: string) => (key ? STAGE_LABELS[key] || key : '未记录节点')
 
 // sessionStorage 键名：保存进行中的 batch_id
 const BATCH_ID_STORAGE_KEY = 'batch_publish_active_batch_id'
 
 export function BatchPublish() {
   const { addToast } = useUIStore()
+  // 支持从商品列表的「重新发布」带参进入：?account=<账号>&material=<素材ID>
+  const [searchParams] = useSearchParams()
   const [accounts, setAccounts] = useState<any[]>([])
   const [materials, setMaterials] = useState<ProductMaterial[]>([])
-  const [selectedAccounts, setSelectedAccounts] = useState<Set<string>>(new Set())
-  const [selectedMaterials, setSelectedMaterials] = useState<Set<number>>(new Set())
+  const [selectedAccounts, setSelectedAccounts] = useState<Set<string>>(() => {
+    const acc = searchParams.get('account')
+    return acc ? new Set([acc]) : new Set<string>()
+  })
+  const [selectedMaterials, setSelectedMaterials] = useState<Set<number>>(() => {
+    const mat = Number(searchParams.get('material') || '')
+    return mat ? new Set([mat]) : new Set<number>()
+  })
   const [loadingAccounts, setLoadingAccounts] = useState(true)
   const [loadingMaterials, setLoadingMaterials] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -142,6 +171,8 @@ export function BatchPublish() {
       const res = await publishBatch({
         account_ids: Array.from(selectedAccounts),
         material_ids: Array.from(selectedMaterials),
+        batch_size: batchSize,
+        rest_seconds: batchSize > 0 ? restSeconds : 0,
       })
       if (res.success) {
         addToast({ type: 'success', message: res.message || '批量发布任务已提交' })
@@ -197,11 +228,42 @@ export function BatchPublish() {
     }
   }
 
+  const isPublishedOnSelected = (m: ProductMaterial) => {
+    if (!m.published_accounts || selectedAccounts.size === 0) return false
+    return m.published_accounts.some(accId => selectedAccounts.has(accId))
+  }
+
   const filteredMaterials = materialSearch.trim()
     ? materials.filter(m => m.title.toLowerCase().includes(materialSearch.trim().toLowerCase()))
     : materials
 
+  const unpublishedMaterials = filteredMaterials.filter(m => !isPublishedOnSelected(m))
+  const selectUnpublishedOnly = () =>
+    setSelectedMaterials(new Set(unpublishedMaterials.map(m => m.id)))
+  const clearMaterials = () => setSelectedMaterials(new Set())
+  const dupPairs = Array.from(selectedMaterials)
+    .map(id => materials.find(m => m.id === id))
+    .filter((m): m is ProductMaterial => !!m)
+    .reduce(
+      (sum, m) => sum + (m.published_accounts || []).filter(a => selectedAccounts.has(a)).length,
+      0,
+    )
+
   const total = selectedAccounts.size * selectedMaterials.size
+  const [batchSize, setBatchSize] = useState(20)
+  const [restSeconds, setRestSeconds] = useState(300)
+  const STAGES: { key: string; label: string }[] = [
+    { key: 'prepare', label: '打开发布页' },
+    { key: 'content', label: '填内容' },
+    { key: 'category', label: '选分类' },
+    { key: 'fields', label: '价格库存' },
+    { key: 'address', label: '所在地' },
+    { key: 'submit', label: '提交' },
+  ]
+  const currentStageIndex = progress?.current
+    ? STAGES.findIndex(s => s.key === progress.current!.stage)
+    : -1
+  const fmtDur = (sec: number) => (sec >= 60 ? `${Math.floor(sec / 60)}分${sec % 60}秒` : `${sec}秒`)
   const isDisabled = submitting || total === 0 || (progress !== null && !progress.finished)
 
   return (
@@ -218,6 +280,11 @@ export function BatchPublish() {
         <div className="text-sm text-slate-500 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-lg">
           {selectedAccounts.size} 账号  {selectedMaterials.size} 素材 =&nbsp;
           <span className="font-semibold text-blue-600 dark:text-blue-400">{total} 次发布</span>
+          {dupPairs > 0 && (
+            <span className="block mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+              其中 {dupPairs} 次该账号已上架过
+            </span>
+          )}
         </div>
       </div>
 
@@ -262,9 +329,26 @@ export function BatchPublish() {
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }} className="vben-card">
           <div className="vben-card-header">
             <h2 className="vben-card-title">选择素材</h2>
-            <button className="text-sm text-blue-500 hover:underline" onClick={toggleAllMaterials}>
-              {selectedMaterials.size === filteredMaterials.length && filteredMaterials.length > 0 ? '取消全选' : '全选'}
-            </button>
+            <div className="flex items-center gap-3">
+              <button className="text-sm text-blue-500 hover:underline" onClick={toggleAllMaterials}>
+                {selectedMaterials.size === filteredMaterials.length && filteredMaterials.length > 0 ? '取消全选' : '全选'}
+              </button>
+              <button
+                className="text-sm text-blue-500 hover:underline disabled:text-slate-400 disabled:no-underline disabled:cursor-not-allowed"
+                onClick={selectUnpublishedOnly}
+                disabled={selectedAccounts.size === 0 || unpublishedMaterials.length === 0}
+                title={selectedAccounts.size === 0 ? '请先选择账号' : '只选在所选账号上都还没上架过的素材'}
+              >
+                全选未上架（{unpublishedMaterials.length}）
+              </button>
+              <button
+                className="text-sm text-blue-500 hover:underline disabled:text-slate-400 disabled:no-underline disabled:cursor-not-allowed"
+                onClick={clearMaterials}
+                disabled={selectedMaterials.size === 0}
+              >
+                清空（{selectedMaterials.size}）
+              </button>
+            </div>
           </div>
           <div className="vben-card-body">
             <input
@@ -281,18 +365,20 @@ export function BatchPublish() {
               <div className="space-y-1 max-h-72 overflow-y-auto">
                 {filteredMaterials.map(m => {
                   const checked = selectedMaterials.has(m.id)
+                  const alreadyPub = isPublishedOnSelected(m)
                   return (
                     <label key={m.id} className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors ${checked ? 'bg-blue-50 dark:bg-blue-900/20' : 'hover:bg-slate-50 dark:hover:bg-slate-700'}`}>
                       <input type="checkbox" className="w-4 h-4 text-blue-600 rounded accent-blue-500"
                         checked={checked} onChange={() => toggleMaterial(m.id)} />
                       {m.images?.[0] ? (
-                        <img src={m.images[0]} alt={m.title} className="w-10 h-10 object-cover rounded-lg flex-shrink-0" />
+                        <img src={mediaUrl(m.images[0])} alt={m.title} className="w-10 h-10 object-cover rounded-lg flex-shrink-0" />
                       ) : (
                         <div className="w-10 h-10 bg-slate-100 dark:bg-slate-700 rounded-lg flex items-center justify-center text-xs text-slate-400 flex-shrink-0">无图</div>
                       )}
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium truncate text-slate-800 dark:text-slate-100">{m.title}</p>
                         <p className="text-xs text-amber-600">{m.price}</p>
+                        {alreadyPub && <span className="badge-warning flex-shrink-0 text-[10px]">该账号已上架</span>}
                       </div>
                     </label>
                   )
@@ -304,7 +390,34 @@ export function BatchPublish() {
       </div>
 
       {/* 提交按钮 */}
-      <div className="flex justify-center">
+      <div className="flex flex-wrap items-center justify-center gap-3">
+        <label className="flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-300">
+          每批
+          <select
+            className="input-ios !w-24 !py-1.5"
+            value={batchSize}
+            onChange={e => setBatchSize(Number(e.target.value))}
+            disabled={isDisabled}
+          >
+            <option value={0}>不分批</option>
+            <option value={10}>10 条</option>
+            <option value={20}>20 条</option>
+            <option value={50}>50 条</option>
+          </select>
+        </label>
+        <label className="flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-300">
+          批间冷却
+          <input
+            type="number"
+            min={0}
+            step={30}
+            className="input-ios !w-24 !py-1.5"
+            value={restSeconds}
+            onChange={e => setRestSeconds(Math.max(0, Number(e.target.value) || 0))}
+            disabled={isDisabled || batchSize === 0}
+          />
+          <span>秒</span>
+        </label>
         <button className="btn-ios-primary min-w-48" disabled={isDisabled} onClick={handleSubmit}>
           {submitting
             ? <><Loader2 className="w-4 h-4 animate-spin" />提交中...</>
@@ -339,16 +452,43 @@ export function BatchPublish() {
               ))}
             </div>
             {progress.total > 0 && (
-              <>
-                <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 mb-1">
-                  <div className="bg-blue-500 h-2 rounded-full transition-all duration-500"
-                    style={{ width: `${Math.round((progress.success + progress.failed) / progress.total * 100)}%` }} />
+              <div className="mb-3">
+                <div className="flex flex-wrap items-center gap-1.5 w-full">
+                  {STAGES.map((s, i) => {
+                    const done = progress.finished || (currentStageIndex >= 0 && i < currentStageIndex)
+                    const active = !progress.finished && i === currentStageIndex
+                    return (
+                      <div key={s.key} className="flex items-center gap-1.5">
+                        <span
+                          className={
+                            'whitespace-nowrap rounded-full px-3 py-1 text-xs border ' +
+                            (done
+                              ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300'
+                              : active
+                                ? 'bg-white dark:bg-slate-900 border-blue-500 text-blue-600 dark:text-blue-400 ring-2 ring-blue-500/30'
+                                : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-400')
+                          }
+                        >
+                          {s.label}
+                        </span>
+                        {i < STAGES.length - 1 && <span className="text-slate-300 dark:text-slate-600">→</span>}
+                      </div>
+                    )
+                  })}
                 </div>
-                <div className="flex justify-between text-xs text-slate-400">
-                  <span>进度 {Math.round((progress.success + progress.failed) / progress.total * 100)}%</span>
-                  <span>批次 ID：{progress.batch_id.slice(0, 8)}...</span>
-                </div>
-              </>
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                  {progress.current ? (
+                    <>
+                      当前：{accountNameMap.get(progress.current.account_id) || progress.current.account_id}
+                      {' · '}{progress.current.title}
+                      {' · '}{STAGES.find(s => s.key === progress.current!.stage)?.label || progress.current.stage}
+                      {progress.current.elapsed_seconds != null && <> · 已耗时 {fmtDur(progress.current.elapsed_seconds)}</>}
+                    </>
+                  ) : (
+                    <>批次 ID：{progress.batch_id.slice(0, 8)}...</>
+                  )}
+                </p>
+              </div>
             )}
             {!progress.finished && <p className="text-xs text-slate-400 mt-2">每 3 秒自动刷新进度</p>}
             {progress.account_statuses.length > 0 && (
@@ -358,7 +498,14 @@ export function BatchPublish() {
                   <span className="text-xs text-slate-400">按账号展示发布后商品同步结果</span>
                 </div>
                 <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                  {progress.account_statuses.map(accountStatus => (
+                  {progress.account_statuses.map(accountStatus => {
+                    const accountFailures = (progress.failures || []).filter(f => f.account_id === accountStatus.account_id)
+                    const stageCounts = accountFailures.reduce<Record<string, number>>((acc, f) => {
+                      const k = f.stage || 'unknown'
+                      acc[k] = (acc[k] || 0) + 1
+                      return acc
+                    }, {})
+                    return (
                     <div key={accountStatus.account_id} className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 bg-slate-50/80 dark:bg-slate-800/60">
                       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                         <div className="min-w-0">
@@ -388,13 +535,36 @@ export function BatchPublish() {
                         </div>
                       </div>
                       <div className="mt-3 text-xs text-slate-500 dark:text-slate-300 break-all">{accountStatus.sync_message}</div>
+                      {accountFailures.length > 0 && (
+                        <div className="mt-2 space-y-1">
+                          <div className="text-xs font-medium text-amber-700 dark:text-amber-300">
+                            失败 {accountFailures.length} 条 · 卡在
+                            {Object.entries(stageCounts)
+                              .map(([k, n]) => ` ${stageLabelOf(k === 'unknown' ? undefined : k)} ${n} 条`)
+                              .join(' /')}
+                          </div>
+                          {accountFailures.map((f, idx) => (
+                            <div
+                              key={idx}
+                              className="rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-2.5 py-1.5 text-xs"
+                            >
+                              <span className="font-medium text-amber-700 dark:text-amber-300">{f.title}</span>
+                              <span className="ml-1.5 rounded bg-amber-200/70 dark:bg-amber-800/60 px-1.5 py-0.5 text-[10px] text-amber-800 dark:text-amber-200 align-middle">
+                                {stageLabelOf(f.stage)}
+                              </span>
+                              <span className="text-amber-600 dark:text-amber-400"> — {f.error_message}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       {(accountStatus.sync_status === 'success' || accountStatus.sync_total_count > 0 || accountStatus.sync_saved_count > 0) && (
                         <div className="mt-2 text-xs text-slate-500 dark:text-slate-300">
                           已抓取 {accountStatus.sync_total_count} 件，入库 {accountStatus.sync_saved_count} 件
                         </div>
                       )}
                     </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             )}

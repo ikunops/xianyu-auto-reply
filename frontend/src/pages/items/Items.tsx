@@ -1,7 +1,9 @@
 ﻿import { useEffect, useState, useRef } from 'react'
-import { CheckSquare, Download, Edit2, ExternalLink, Loader2, Package, PackageX, RefreshCw, Search, Square, Trash2, X, Settings, Plus, MessageSquare, Bot, ChevronLeft, ChevronRight, ImagePlus, Unlink } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { CheckSquare, Download, Edit2, ExternalLink, Loader2, Package, PackageX, RefreshCw, RotateCcw, Search, Square, Trash2, X, Settings, Plus, MessageSquare, Bot, ChevronLeft, ChevronRight, ImagePlus, Unlink } from 'lucide-react'
 import { batchDeleteItems, batchOfflineItems, deleteItem, fetchAllItemsFromAccessibleAccounts, fetchAllItemsFromAccount, getItemsPaginated, updateItem, updateItemMultiQuantityDelivery, updateItemMultiSpec, getItemDefaultReply, saveItemDefaultReply, deleteItemDefaultReply, batchSaveItemDefaultReply, batchDeleteItemDefaultReply, getItemAiPrompt, saveItemAiPrompt, batchDeleteItemAiPrompt, batchSaveItemAiPrompt, uploadItemDefaultReplyImage, uploadBatchDefaultReplyImage, type ItemFilterParams } from '@/api/items'
 import { getAccountDetails } from '@/api/accounts'
+import { getPublishLogs } from '@/api/productPublish'
 import { batchClearItemRelations } from '@/api/cards'
 import { ItemCardRelationModal } from './ItemCardRelationModal'
 import { useUIStore } from '@/store/uiStore'
@@ -16,6 +18,7 @@ type ItemBooleanFilterKey = 'is_polished' | 'is_multi_spec' | 'multi_quantity_de
 
 export function Items() {
   const { addToast } = useUIStore()
+  const navigate = useNavigate()
   const { isAuthenticated, token, _hasHydrated } = useAuthStore()
   const [loading, setLoading] = useState(true)
   const [items, setItems] = useState<Item[]>([])
@@ -24,6 +27,9 @@ export function Items() {
   const [searchKeyword, setSearchKeyword] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set())
   const [fetchingType, setFetchingType] = useState<'single' | 'all' | null>(null)
+  // 「本次同步未见」快照：判断商品是否还在闲鱼在售（按账号存在浏览器本地）
+  const [liveSnapshot, setLiveSnapshot] = useState<{ at: string; ids: string[] } | null>(null)
+  const [onlyInStock, setOnlyInStock] = useState(false)
   
   // 分页状态
   const [pagination, setPagination] = useState({
@@ -110,6 +116,33 @@ export function Items() {
   // const hasSearchEffectInitializedRef = useRef(false)  // 已改为手动查询，不再需要
   const skipNextSearchEffectRef = useRef(false)
 
+  // 切换账号时读取该账号最近一次同步的「在售快照」
+  useEffect(() => {
+    if (!selectedAccount) {
+      setLiveSnapshot(null)
+      return
+    }
+    try {
+      const raw = localStorage.getItem(`xy_live_snapshot:${selectedAccount}`)
+      setLiveSnapshot(raw ? JSON.parse(raw) : null)
+    } catch {
+      setLiveSnapshot(null)
+    }
+  }, [selectedAccount])
+
+  // 不在最近一次同步返回列表里的商品 = 已下架/已删除
+  const isItemOffline = (item: Item) => !!liveSnapshot && !liveSnapshot.ids.includes(String(item.item_id))
+
+  const saveLiveSnapshot = (cookieId: string, ids: string[]) => {
+    const snap = { at: new Date().toLocaleString(), ids }
+    setLiveSnapshot(snap)
+    try {
+      localStorage.setItem(`xy_live_snapshot:${cookieId}`, JSON.stringify(snap))
+    } catch {
+      // 本地存储不可用时只在本次会话生效
+    }
+  }
+
   const loadItems = async (
     page: number = pagination.page,
     pageSize: number = pagination.pageSize,
@@ -194,6 +227,15 @@ export function Items() {
       if (result.success) {
         const totalCount = (result as { total_count?: number }).total_count || 0
         const savedCount = (result as { saved_count?: number }).saved_count || 0
+        const liveIds = (result.items || [])
+          .map((it) => String(it?.item_id ?? it?.id ?? ''))
+          .filter(Boolean)
+        if (liveIds.length > 0) {
+          saveLiveSnapshot(selectedAccount, liveIds)
+        } else {
+          // 没拿到明细就不动快照，免得把全部商品误判成已下架
+          addToast({ type: 'warning', message: '本次返回未包含商品明细，在售状态未更新' })
+        }
         addToast({ type: 'success', message: `成功获取商品，共 ${totalCount} 件，保存 ${savedCount} 件` })
         await loadItems()
       } else {
@@ -204,6 +246,33 @@ export function Items() {
     } finally {
       setFetchingType(null)
     }
+  }
+
+  // 重新发布：跳到批量发布页并预选账号（能查到发布记录时连素材一起带上）
+  const handleRepublish = async (item: Item) => {
+    if (!item.cookie_id) {
+      addToast({ type: 'warning', message: '该商品没有归属账号，无法重新发布' })
+      return
+    }
+    let materialId: number | null = null
+    try {
+      const logs = await getPublishLogs(1, 100, item.cookie_id)
+      const hit = (logs?.data?.list || []).find(
+        (l) => String(l.item_id || '') === String(item.item_id) && l.material_id
+      )
+      materialId = hit?.material_id ?? null
+    } catch {
+      materialId = null
+    }
+    const params = new URLSearchParams({ account: item.cookie_id })
+    if (materialId) params.set('material', String(materialId))
+    addToast({
+      type: materialId ? 'info' : 'warning',
+      message: materialId
+        ? `已带到发布页：账号 ${item.cookie_id}、素材 #${materialId}`
+        : '未找到该商品的发布记录，只带了账号，请在发布页手动选择素材',
+    })
+    navigate(`/product-publish/batch?${params.toString()}`)
   }
 
   const handleFetchAllItems = async () => {
@@ -1011,7 +1080,7 @@ export function Items() {
 
   // ==================== 批量发货配置 ====================
 
-  const filteredItems = items
+  const filteredItems = onlyInStock ? items.filter((it) => !isItemOffline(it)) : items
 
   if (loading) {
     return <PageLoading />
@@ -1028,14 +1097,6 @@ export function Items() {
         <div className="flex flex-wrap gap-2">
           {selectedIds.size > 0 && (
             <>
-              <button onClick={() => setBatchDeleteItemConfirm(true)} className="btn-ios-danger">
-                <Trash2 className="w-4 h-4" />
-                删除选中 ({selectedIds.size})
-              </button>
-              <button onClick={openBatchOffline} className="btn-ios-secondary">
-                <PackageX className="w-4 h-4" />
-                下架选中 ({selectedIds.size})
-              </button>
               <button onClick={() => setBatchDeleteDefaultReplyConfirm(true)} className="btn-ios-secondary">
                 <Trash2 className="w-4 h-4" />
                 删除默认回复
@@ -1125,7 +1186,28 @@ export function Items() {
                 placeholder="所有账号"
               />
             </div>
-            <div className="input-group min-w-[240px] flex-1">
+            <div className="input-group shrink-0">
+              <label className="input-label">在售状态</label>
+              <div className="flex items-center gap-3 h-[38px]">
+                <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={onlyInStock}
+                    onChange={(e) => setOnlyInStock(e.target.checked)}
+                    className="w-4 h-4 rounded border-gray-300"
+                  />
+                  只看在售
+                </label>
+                <span className="text-xs text-gray-400">
+                  {!selectedAccount
+                    ? '先选定账号'
+                    : liveSnapshot
+                      ? `${liveSnapshot.at} 同步到 ${liveSnapshot.ids.length} 件在售，${items.filter((it) => isItemOffline(it)).length} 件未见`
+                      : '点「获取商品」后判断'}
+                </span>
+              </div>
+            </div>
+            <div className="input-group w-72 shrink-0">
               <label className="input-label">搜索商品</label>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -1141,6 +1223,29 @@ export function Items() {
                   placeholder="搜索商品ID、标题或详情..."
                   className="input-ios pl-9"
                 />
+              </div>
+            </div>
+            <div className="input-group shrink-0">
+              <label className="input-label">批量操作</label>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setBatchDeleteItemConfirm(true)}
+                  disabled={selectedIds.size === 0}
+                  title={selectedIds.size === 0 ? '先勾选商品' : ''}
+                  className="btn-ios-danger disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  删除选中{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
+                </button>
+                <button
+                  onClick={openBatchOffline}
+                  disabled={selectedIds.size === 0}
+                  title={selectedIds.size === 0 ? '先勾选商品' : ''}
+                  className="btn-ios-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <PackageX className="w-4 h-4" />
+                  下架选中{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
+                </button>
               </div>
             </div>
             <div className="input-group min-w-[140px]">
@@ -1288,11 +1393,21 @@ export function Items() {
                       </a>
                     </td>
                     <td className="max-w-[280px]">
-                      <div
-                        className="font-medium line-clamp-2 cursor-help"
-                        title={item.item_title || item.title || '-'}
-                      >
-                        {item.item_title || item.title || '-'}
+                      <div className="flex items-start gap-2">
+                        {isItemOffline(item) && (
+                          <span
+                            className="shrink-0 mt-0.5 px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+                            title={`${liveSnapshot?.at || ''} 的同步未返回该商品，可能在闲鱼已下架或已删除`}
+                          >
+                            已下架
+                          </span>
+                        )}
+                        <div
+                          className="font-medium line-clamp-2 cursor-help"
+                          title={item.item_title || item.title || '-'}
+                        >
+                          {item.item_title || item.title || '-'}
+                        </div>
                       </div>
                       {(item.item_detail || item.desc) && (
                         <div
@@ -1395,6 +1510,15 @@ export function Items() {
                     </td>
                     <td className="sticky right-0 bg-white dark:bg-slate-900">
                       <div className="flex gap-1">
+                        {isItemOffline(item) && (
+                          <button
+                            onClick={() => handleRepublish(item)}
+                            className="table-action-btn hover:!bg-amber-50"
+                            title="重新发布：跳到批量发布页，复用现有发布流水线"
+                          >
+                            <RotateCcw className="w-4 h-4 text-amber-500" />
+                          </button>
+                        )}
                         <button
                           onClick={() => handleEdit(item)}
                           className="table-action-btn hover:!bg-blue-50"

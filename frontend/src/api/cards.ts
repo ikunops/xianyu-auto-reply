@@ -7,6 +7,8 @@ const CARD_PREFIX = '/api/v1/cards'
 export interface CardData {
   id?: number
   item_id?: string  // 关联商品ID
+  material_id?: number | null  // 关联素材ID
+  source_path?: string  // 网盘原始课程目录（补链/巡检靠它）
   name: string
   type: 'api' | 'text' | 'data' | 'image'
   description?: string

@@ -70,6 +70,7 @@ async def batch_offline_items_from_xianyu(
         if key and key not in seen:
             seen.add(key)
             cleaned_ids.append(key)
+    ids_str = ",".join(cleaned_ids)
     if not cleaned_ids:
         return {
             "success": False,
@@ -179,8 +180,13 @@ async def batch_offline_items_from_xianyu(
                         elif suc_count == 0 and fail_count == 0 and results:
                             suc_count = sum(1 for r in results if r["success"])
                             fail_count = len(results) - suc_count
+                        detail = ", ".join(
+                            "%s=%s" % (r["item_id"], "OK" if r["success"] else "FAIL")
+                            for r in results
+                        )
                         logger.info(
                             f"【{account_id}】批量下架完成：成功{suc_count}，失败{fail_count}"
+                            f" | 请求={ids_str} | 明细={detail or '无'}"
                         )
                         return {
                             "success": suc_count > 0,
@@ -192,7 +198,7 @@ async def batch_offline_items_from_xianyu(
                         }
                     # API返回SUCCESS但data层面失败
                     msg = data.get("msg", "") or str(data)
-                    logger.warning(f"【{account_id}】批量下架API返回异常: {msg}")
+                    logger.warning(f"【{account_id}】批量下架API返回异常: {msg} | 请求={ids_str}")
                     return {
                         "success": False,
                         "message": msg,
@@ -215,7 +221,7 @@ async def batch_offline_items_from_xianyu(
                     )
 
                 # 其他错误
-                logger.warning(f"【{account_id}】批量下架失败: {ret_str}")
+                logger.warning(f"【{account_id}】批量下架失败: {ret_str} | 请求={ids_str}")
                 return {
                     "success": False,
                     "message": ret_str or "下架失败",

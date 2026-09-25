@@ -1131,3 +1131,41 @@ async def renew_account_login(
         message=f"批量续期完成：成功 {success_count} 个，失败 {failed_count} 个",
         data={"results": results, "success_count": success_count, "failed_count": failed_count},
     )
+
+
+@router.post("/permission-check", response_model=ApiResponse)
+async def check_account_permissions(
+    current_user: User = Depends(deps.get_current_active_user),
+    session=Depends(deps.get_db_session),
+) -> ApiResponse:
+    """检测各账号的「鱼小铺专业卖家工作台」商业身份（只读，不改任何数据）。
+
+    工作台权限由闲鱼按账号发放，判定接口是 seller.platform.user.business.identity.get
+    是否返回 bizCode=COMMONPRO；没有该身份的账号无法调用 seller.pc.* 一族（下架、数据罗盘等）。
+    """
+    from app.services.seller_identity_service import check_accounts
+
+    owner_id, is_admin = resolve_owner_scope(current_user)
+    stmt = select(XYAccount.id, XYAccount.account_id, XYAccount.remark, XYAccount.cookie)
+    if not is_admin:
+        stmt = stmt.where(XYAccount.owner_id == owner_id)
+    rows = (await session.execute(stmt.order_by(XYAccount.id))).all()
+
+    accounts = [
+        {"pk": row[0], "account_id": row[1], "note": row[2], "cookie": row[3]}
+        for row in rows
+    ]
+    if not accounts:
+        return ApiResponse(success=False, message="没有可检测的账号", data=[])
+
+    try:
+        results = await check_accounts(accounts)
+    except Exception as exc:
+        return ApiResponse(success=False, message=f"权限检测失败: {exc}", data=[])
+
+    granted = sum(1 for item in results if item.get("workbench_enabled"))
+    return ApiResponse(
+        success=True,
+        message=f"检测完成：{granted}/{len(results)} 个账号有卖家工作台权限",
+        data=results,
+    )

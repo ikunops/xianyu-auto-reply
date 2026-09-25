@@ -77,6 +77,100 @@ async def _sync_account_items_after_publish(
         }
 
 
+async def _bind_material_card_after_publish(
+    user_id: int,
+    material_id: Optional[int],
+    item_id: Optional[str],
+) -> Dict[str, Any]:
+    """发布成功后把该素材的卡券绑到新商品上（出生就写，避免买家拍下发不出货）
+
+    锚定走"卡券唯一键 = 分享链接"那条边：素材来源链接里的 pwd_id → 反查正文含该 pwd_id 的卡券。
+    刻意不用 xy_cards.material_id：那列是早期按名称猜的回填，实测有错绑。
+    守卫：① 商品已有任何卡券关联则直接跳过（挂两张会让发货端"唯一卡券"判定失败）；
+          ② 命中 0 张或多张都不绑，留给人工。
+    """
+    if not material_id or not item_id:
+        return {"card_bound": 0, "card_bind_message": ""}
+
+    from sqlalchemy import text
+
+    from common.db.session import async_session_maker
+    from common.services.card_matcher import CardMatcher
+
+    try:
+        async with async_session_maker() as fresh_session:
+            bound = (
+                await fresh_session.execute(
+                    text("SELECT COUNT(*) FROM xy_card_item_relations WHERE item_id = :iid"),
+                    {"iid": str(item_id)},
+                )
+            ).scalar() or 0
+            if bound:
+                return {"card_bound": 0, "card_bind_message": ""}
+
+            pwd_rows = (
+                await fresh_session.execute(
+                    text(
+                        "SELECT DISTINCT SUBSTRING_INDEX(share_url, '/s/', -1) "
+                        "FROM xy_material_sources "
+                        "WHERE material_id = :mid AND share_url LIKE '%/s/%'"
+                    ),
+                    {"mid": int(material_id)},
+                )
+            ).all()
+            pwds = [str(r[0]).strip('/') for r in pwd_rows if r[0]]
+            if not pwds:
+                return {"card_bound": 0, "card_bind_message": "该素材没有可锚定的分享链接，未自动绑定"}
+
+            card_ids = []
+            for pwd in pwds:
+                hit = (
+                    await fresh_session.execute(
+                        text("SELECT id FROM xy_cards WHERE enabled = 1 AND text_content LIKE :kw"),
+                        {"kw": "%" + pwd + "%"},
+                    )
+                ).all()
+                card_ids += [int(r[0]) for r in hit]
+            card_ids = sorted(set(card_ids))
+            if not card_ids:
+                return {"card_bound": 0, "card_bind_message": "按分享链接没找到对应卡券，未自动绑定"}
+
+            # 一个素材多张卡券是正常的（一条链接一张卡券）：给这个商品选一张即可，
+            # 商品侧仍只有一张，发货端"唯一卡券"的判定不受影响。
+            picked_note = ""
+            if len(card_ids) == 1:
+                card_id = card_ids[0]
+            else:
+                ranked = (
+                    await fresh_session.execute(
+                        text(
+                            "SELECT id FROM xy_cards WHERE id IN (%s) "
+                            "ORDER BY delivery_count DESC, id ASC"
+                            % ",".join(str(c) for c in card_ids)
+                        )
+                    )
+                ).all()
+                card_id = int(ranked[0][0])
+                picked_note = f"该素材有 {len(card_ids)} 张卡券，已选 #{card_id}（发货次数最多、编号最小）"
+            matcher = CardMatcher(fresh_session)
+            res = await matcher.batch_bind_cards_to_items(
+                user_id=user_id,
+                card_ids=[card_id],
+                item_ids=[str(item_id)],
+            )
+            await fresh_session.commit()
+            if res.get("success_count"):
+                logger.info(f"发布成功后自动绑定卡券 #{card_id} → 商品 {item_id}")
+                msg = f"已自动绑定卡券 #{card_id} 到新商品"
+                if picked_note:
+                    msg = f"{msg}，{picked_note}"
+                return {"card_bound": 1, "card_bind_message": msg}
+            return {"card_bound": 0, "card_bind_message": f"卡券 #{card_id} 与该商品已绑定，无需重复绑"}
+    except Exception as exc:
+        logger.warning(f"发布后自动绑卡券失败 material={material_id} item={item_id}: {exc}")
+        return {"card_bound": 0, "card_bind_message": f"自动绑卡券失败：{str(exc)[:80]}"}
+
+
 async def execute_single_publish(
     session: AsyncSession,
     user_id: int,
@@ -85,6 +179,8 @@ async def execute_single_publish(
     static_root: str | Path | None = None,
 ) -> Dict[str, Any]:
     """执行单品发布并返回统一结果。"""
+    # 单品发布也可能来自素材：从素材库导入时前端会带 material_id（批量发布带的是 id）
+    material_id = item_data.get("id") or item_data.get("material_id")
     log_svc = PublishLogService(session)
     address_svc = PublishAddressService(session)
 
@@ -97,7 +193,7 @@ async def execute_single_publish(
             title=item_data.get("title", ""),
             description=item_data.get("description", ""),
             price=str(item_data.get("price", "")),
-            material_id=item_data.get("id"),
+            material_id=material_id,
             status="failed",
             error_message="账号不存在或无权使用",
         )
@@ -112,7 +208,7 @@ async def execute_single_publish(
             title=item_data.get("title", ""),
             description=item_data.get("description", ""),
             price=str(item_data.get("price", "")),
-            material_id=item_data.get("id"),
+            material_id=material_id,
             status="failed",
             error_message=str(exc),
         )
@@ -125,7 +221,7 @@ async def execute_single_publish(
         title=item_data.get("title", ""),
         description=item_data.get("description", ""),
         price=str(item_data.get("price", "")),
-        material_id=item_data.get("id"),
+        material_id=material_id,
         status="publishing",
         **resolved_address.to_log_fields(),
     )
@@ -183,9 +279,17 @@ async def execute_single_publish(
             account=account,
         )
 
+    card_bind_info = await _bind_material_card_after_publish(
+        user_id=user_id,
+        material_id=material_id,
+        item_id=result.get("item_id") if publish_success else None,
+    )
+
     message = result.get("message") or ("商品发布成功" if publish_success else "发布失败")
     if publish_success and sync_info.get("sync_message"):
         message = f"{message}，{sync_info['sync_message']}"
+    if publish_success and card_bind_info.get("card_bind_message"):
+        message = f"{message}，{card_bind_info['card_bind_message']}"
 
     return {
         "success": publish_success,
@@ -194,4 +298,5 @@ async def execute_single_publish(
         "item_id": result.get("item_id"),
         "log_id": log.id,
         **sync_info,
+        **card_bind_info,
     }

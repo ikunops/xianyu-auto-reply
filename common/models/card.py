@@ -26,6 +26,8 @@ class Card(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True, comment='卡券ID')
     user_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True, comment='所属用户ID')
     item_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True, comment='关联商品ID')  # 关联商品ID
+    material_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True, comment='关联素材ID')
+    source_path: Mapped[str] = mapped_column(String(512), nullable=False, default='', comment='网盘原始课程目录')
     name: Mapped[str] = mapped_column(String(255), nullable=False, comment='卡券名称')
     type: Mapped[str] = mapped_column(String(50), nullable=False, comment='卡券类型(api/text/data/image)')  # api, text, data, image
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment='卡券描述')

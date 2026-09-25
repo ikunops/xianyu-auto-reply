@@ -27,6 +27,12 @@ import {
 } from '@/api/data_analysis'
 import { useUIStore } from '@/store/uiStore'
 import type { AccountDetail } from '@/types'
+import {
+  pickDefaultAccountId,
+  rememberAccountChoice,
+  rememberWorkingAccount,
+  sortAccountsForPicker,
+} from '@/utils/accountPicker'
 import { BrowseDistribution } from './BrowseDistribution'
 import {
   LineChart,
@@ -121,6 +127,7 @@ export function DataOverview() {
       try {
         const data = await getAccountDetails()
         setAccounts(data)
+        setSelectedAccountId((prev) => prev ?? pickDefaultAccountId(data))
       } catch {
         addToast({ type: 'error', message: '加载账号列表失败' })
       }
@@ -155,6 +162,7 @@ export function DataOverview() {
       }
       const result = await getSellerSummary(params)
       if (result.success && result.data) {
+        rememberWorkingAccount(selectedAccountId)
         const summaryData = result.data.data?.graphBannerBenchData
         if (summaryData) {
           setBannerData(summaryData.bannerDataList || [])
@@ -222,10 +230,14 @@ export function DataOverview() {
           <select
             className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
             value={selectedAccountId ?? ''}
-            onChange={(e) => setSelectedAccountId(Number(e.target.value))}
+            onChange={(e) => {
+              const id = Number(e.target.value)
+              setSelectedAccountId(id)
+              rememberAccountChoice(id)
+            }}
           >
             <option value="" disabled>选择账号</option>
-            {[...accounts].sort((a, b) => (a.enabled === b.enabled ? 0 : a.enabled ? -1 : 1)).map((acc) => (
+            {sortAccountsForPicker(accounts).map((acc) => (
               <option key={acc.pk} value={acc.pk}>
                 {acc.note || acc.id || `账号${acc.pk}`}{acc.enabled ? '' : '（已禁用）'}
               </option>

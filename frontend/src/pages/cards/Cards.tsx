@@ -312,7 +312,7 @@ export function Cards() {
               <RefreshCw className="w-6 h-6 animate-spin text-blue-500" />
             </div>
           ) : (
-            <table className="table-ios min-w-[1080px]">
+            <table className="table-ios table-fixed min-w-[1080px]">
               <thead className="sticky top-0 bg-white dark:bg-slate-800 z-10">
                 <tr>
                   <th className="w-10 whitespace-nowrap">
@@ -328,15 +328,15 @@ export function Cards() {
                       )}
                     </button>
                   </th>
-                  <th className="whitespace-nowrap w-16">ID</th>
-                  <th className="whitespace-nowrap min-w-[250px]">名称</th>
-                  <th className="whitespace-nowrap">类型</th>
-                  <th className="whitespace-nowrap min-w-[300px]">内容预览</th>
-                  <th className="whitespace-nowrap">发货设置</th>
-                  <th className="whitespace-nowrap">对接信息</th>
-                  <th className="whitespace-nowrap">状态</th>
-                  <th className="whitespace-nowrap">时间</th>
-                  <th className="whitespace-nowrap sticky right-0 bg-slate-50 dark:bg-slate-800">操作</th>
+                  <th className="whitespace-nowrap w-[54px]">ID</th>
+                  <th className="whitespace-nowrap w-[16%]">名称</th>
+                  <th className="whitespace-nowrap w-[58px]">类型</th>
+                  <th className="whitespace-nowrap w-[26%]">内容预览</th>
+                  <th className="whitespace-nowrap w-[104px]">发货设置</th>
+                  <th className="whitespace-nowrap w-[96px]">对接信息</th>
+                  <th className="whitespace-nowrap w-[66px]">状态</th>
+                  <th className="whitespace-nowrap w-[152px]">时间</th>
+                  <th className="whitespace-nowrap w-[150px] sticky right-0 bg-slate-50 dark:bg-slate-800">操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -364,12 +364,23 @@ export function Cards() {
                           )}
                         </button>
                       </td>
-                      <td className="text-xs text-gray-500 align-top">{card.id}</td>
+                      <td className="text-xs text-gray-500 align-top whitespace-nowrap">{card.id}</td>
                       {/* 名称列：主名称 + 可选的规格/备注副标题 */}
                       <td className="align-top min-w-[200px] max-w-[280px]">
                         <div className="flex flex-col gap-0.5">
                           <span className="font-medium text-slate-900 dark:text-slate-100 break-words" title={card.name}>
                             {card.name}
+                          </span>
+                          <span
+                            className={
+                              'text-[11px] truncate block ' +
+                              (card.source_path
+                                ? 'text-slate-500 dark:text-slate-400'
+                                : 'text-amber-600 dark:text-amber-400')
+                            }
+                            title={card.source_path || '未登记网盘目录：老卡券/无源卡券，链接失效时无法按目录补链'}
+                          >
+                            网盘目录：{card.source_path || '未登记'}
                           </span>
                           {card.is_multi_spec && (card.spec_name || card.spec_value) && (
                             <span className="text-[11px] text-blue-600 dark:text-blue-400">
@@ -387,13 +398,13 @@ export function Cards() {
                         </div>
                       </td>
                       {/* 类型徽章 */}
-                      <td className="align-top">
+                      <td className="align-top whitespace-nowrap">
                         <span className={`${cardTypeBadge[card.type] || 'badge-gray'} text-xs`}>
                           {cardTypeLabels[card.type] || card.type}
                         </span>
                       </td>
                       {/* 内容预览 */}
-                      <td className="max-w-[220px] align-top">
+                      <td className="align-top">
                         {card.type === 'image' ? (
                           card.image_url ? (
                             <button
@@ -410,7 +421,7 @@ export function Cards() {
                             <span className="text-gray-400 text-sm">暂无图片</span>
                           )
                         ) : (
-                          <code className="text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded truncate block max-w-[220px]">
+                          <code className="text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded block line-clamp-2 break-all">
                             {card.type === 'text' && (card.text_content || '-')}
                             {card.type === 'data' && (card.data_content ? `剩余 ${card.data_content.split('\n').filter((line: string) => line.trim()).length} 条` : '-')}
                             {card.type === 'api' && (card.api_config?.url || '-')}
@@ -419,7 +430,7 @@ export function Cards() {
                         )}
                       </td>
                       {/* 发货设置：发货次数 + 延时 */}
-                      <td className="align-top text-xs">
+                      <td className="align-top text-xs whitespace-nowrap">
                         <div className="flex flex-col gap-0.5">
                           <span className="text-slate-700 dark:text-slate-300">
                             已发货 <span className="font-medium">{card.delivery_count || 0}</span> 次
@@ -430,7 +441,7 @@ export function Cards() {
                         </div>
                       </td>
                       {/* 对接信息：可对接时展示价格；不可对接则灰色显示 */}
-                      <td className="align-top text-xs">
+                      <td className="align-top text-xs whitespace-nowrap">
                         {card.is_dockable ? (
                           <div className="flex flex-col gap-0.5">
                             <span className="text-slate-700 dark:text-slate-300">
@@ -460,7 +471,7 @@ export function Cards() {
                         )}
                       </td>
                       {/* 状态 */}
-                      <td className="align-top">
+                      <td className="align-top whitespace-nowrap">
                         {card.enabled ? (
                           <span className="badge-success text-xs">启用</span>
                         ) : (
