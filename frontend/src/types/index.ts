@@ -113,6 +113,7 @@ export interface Item {
   item_price?: string
   has_sku?: boolean
   is_polished?: boolean            // 是否擦亮
+  off_shelf_seen_at?: string | null // 上次全量在售同步未见时间（非空=疑似已下架，全账号视图共用）
   is_multi_spec?: number | boolean
   multi_delivery?: boolean
   multi_quantity_delivery?: number | boolean

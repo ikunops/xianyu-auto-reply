@@ -1,4 +1,4 @@
-﻿import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { CheckSquare, Download, Edit2, ExternalLink, Loader2, Package, PackageX, RefreshCw, RotateCcw, Search, Square, Trash2, X, Settings, Plus, MessageSquare, Bot, ChevronLeft, ChevronRight, ImagePlus, Unlink } from 'lucide-react'
 import { batchDeleteItems, batchOfflineItems, deleteItem, fetchAllItemsFromAccessibleAccounts, fetchAllItemsFromAccount, getItemsPaginated, updateItem, updateItemMultiQuantityDelivery, updateItemMultiSpec, getItemDefaultReply, saveItemDefaultReply, deleteItemDefaultReply, batchSaveItemDefaultReply, batchDeleteItemDefaultReply, getItemAiPrompt, saveItemAiPrompt, batchDeleteItemAiPrompt, batchSaveItemAiPrompt, uploadItemDefaultReplyImage, uploadBatchDefaultReplyImage, type ItemFilterParams } from '@/api/items'
@@ -130,8 +130,13 @@ export function Items() {
     }
   }, [selectedAccount])
 
-  // 不在最近一次同步返回列表里的商品 = 已下架/已删除
-  const isItemOffline = (item: Item) => !!liveSnapshot && !liveSnapshot.ids.includes(String(item.item_id))
+  // 已下架判定：优先用服务端持久化的「上次全量同步未见」字段（所有账号视图共用），
+  // 本地快照仅作为单账号刚同步完的即时补充
+  const isItemOffline = (item: Item) => {
+    if (item.off_shelf_seen_at) return true
+    if (!liveSnapshot) return false
+    return !liveSnapshot.ids.includes(String(item.item_id))
+  }
 
   const saveLiveSnapshot = (cookieId: string, ids: string[]) => {
     const snap = { at: new Date().toLocaleString(), ids }

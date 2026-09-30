@@ -907,6 +907,7 @@ async def fetch_all_items_from_account(
             account=account,
             page_size=page_size,
             max_pages=max_pages,
+            mark_off_shelf=True,
         )
 
     accounts = await account_service.list_accounts(owner_id)
@@ -914,6 +915,7 @@ async def fetch_all_items_from_account(
         accounts=accounts,
         page_size=page_size,
         max_pages=max_pages,
+        mark_off_shelf=True,
     )
 
 # ==================== 商品搜索 ====================

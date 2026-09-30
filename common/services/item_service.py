@@ -1,4 +1,4 @@
-﻿"""
+"""
 商品服务
 
 功能：
@@ -261,6 +261,7 @@ class ItemService:
         max_pages: int | None = None,
         stop_when_page_all_existing: bool = False,
         required_title_keyword: str | None = None,
+        mark_off_shelf: bool = False,
     ) -> dict[str, Any]:
         """抓取指定账号全部商品并入库（账号级加锁入口）
 
@@ -289,13 +290,16 @@ class ItemService:
                         "page_size": page_size,
                         "saved_count": 0,
                     }
-                return await self._fetch_all_items_from_account_impl(
-                    account=account,
-                    page_size=page_size,
-                    max_pages=max_pages,
-                    stop_when_page_all_existing=stop_when_page_all_existing,
-                    required_title_keyword=required_title_keyword,
-                )
+            result = await self._fetch_all_items_from_account_impl(
+                account=account,
+                page_size=page_size,
+                max_pages=max_pages,
+                stop_when_page_all_existing=stop_when_page_all_existing,
+                required_title_keyword=required_title_keyword,
+            )
+            if mark_off_shelf:
+                await self._mark_off_shelf_snapshot(account, result)
+            return result
         except Exception as exc:
             # Redis 不可用等异常时降级为无锁执行，靠唯一约束兜底防止重复入库
             logger.warning(
@@ -309,6 +313,50 @@ class ItemService:
                 stop_when_page_all_existing=stop_when_page_all_existing,
                 required_title_keyword=required_title_keyword,
             )
+
+    async def _mark_off_shelf_snapshot(self, account: XYAccount, result: dict[str, Any]) -> None:
+        """全量在售同步完成后，把「本次同步未见」持久化到商品表。
+
+        语义：off_shelf_seen_at 非空 = 最近一次**全量**在售同步未返回该商品（疑似已下架/删除），
+        全账号视图与单账号视图共用该字段；在售清单里出现的商品则清除标记。
+        只在显式 mark_off_shelf=True 的全量同步后调用——增量/提前停止的同步列表不全，打了会误判。
+        """
+        from sqlalchemy import bindparam, text
+
+        from common.db.session import async_session_maker
+
+        try:
+            fetched = []
+            for it in (result.get("items") or []):
+                iid = str(it.get("item_id") or it.get("id") or "").strip()
+                if iid:
+                    fetched.append(iid)
+            if not fetched:
+                logger.warning(
+                    f"【{account.account_id}】本次同步未返回商品明细，跳过下架打标（防误判）"
+                )
+                return
+
+            async with async_session_maker() as session:
+                # 在售 → 清标
+                clear_stmt = text(
+                    "UPDATE xy_catalog_items SET off_shelf_seen_at = NULL "
+                    "WHERE account_id = :pk AND item_id IN :ids"
+                ).bindparams(bindparam("ids", expanding=True))
+                await session.execute(clear_stmt, {"pk": account.id, "ids": fetched})
+                # 未见 → 打标（保留最早一次时间）
+                mark_stmt = text(
+                    "UPDATE xy_catalog_items SET off_shelf_seen_at = NOW() "
+                    "WHERE account_id = :pk AND off_shelf_seen_at IS NULL AND item_id NOT IN :ids"
+                ).bindparams(bindparam("ids", expanding=True))
+                mark_res = await session.execute(mark_stmt, {"pk": account.id, "ids": fetched})
+                await session.commit()
+            marked = mark_res.rowcount or 0
+            logger.info(
+                f"【{account.account_id}】在售同步打标完成：本次未见 {marked} 件已标记 off_shelf_seen_at"
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"【{account.account_id}】下架打标失败（不影响同步）: {exc}")
 
     async def _fetch_all_items_from_account_impl(
         self,
@@ -427,6 +475,7 @@ class ItemService:
         accounts: list[XYAccount],
         page_size: int = 20,
         max_pages: int | None = None,
+        mark_off_shelf: bool = False,
     ) -> dict[str, Any]:
         """按账号列表批量抓取全部商品并汇总结果"""
         if not accounts:
@@ -453,6 +502,7 @@ class ItemService:
                 result = await self.fetch_all_items_from_account(
                     account=account,
                     page_size=page_size,
+                            mark_off_shelf=mark_off_shelf,
                     max_pages=max_pages,
                 )
                 account_success = bool(result.get("success"))
@@ -874,6 +924,7 @@ class ItemService:
             "ai_prompt": item.ai_prompt or "",
             "has_ai_prompt": bool(item.ai_prompt),
             "is_polished": item.is_polished or False,
+            "off_shelf_seen_at": self._format_dt(getattr(item, "off_shelf_seen_at", None)),
             "is_multi_spec": metadata.get("is_multi_spec", False),
             "multi_quantity_delivery": metadata.get("multi_quantity_delivery", False),
             "default_reply_enabled": default_reply_info.get("enabled", False) if default_reply_info else False,
