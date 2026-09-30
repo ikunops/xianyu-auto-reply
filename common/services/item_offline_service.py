@@ -38,6 +38,75 @@ MAX_TOKEN_RETRY = 1
 REQUEST_TIMEOUT = 20
 
 
+WEB_DOWNSHELF_API = "mtop.taobao.idle.item.downshelf"
+WEB_DOWNSHELF_VERSION = "2.0"
+
+
+async def offline_item_via_web(
+    account_id: str,
+    cookies_str: str,
+    item_id: str,
+    retry_count: int = 0,
+) -> dict:
+    """网页版下架单个商品（非鱼小铺账号可用）。
+
+    2026-09-30 抓包确认：网页版商品详情页「下架」按钮实际调用
+    mtop.taobao.idle.item.downshelf v2.0（data 仅 itemId），普通账号有权限，
+    可作为卖家批量下架接口（FAIL_BIZ_IDLE_USER_UNAUTHORIZED）的兜底。
+    """
+    import asyncio
+
+    from common.services.xianyu_mtop import mtop_call
+
+    try:
+        res = await mtop_call(
+            account_id=account_id,
+            cookies_str=cookies_str,
+            api=WEB_DOWNSHELF_API,
+            version=WEB_DOWNSHELF_VERSION,
+            data={"itemId": str(item_id)},
+        )
+        ret_list = res.get("ret") or []
+        ret_str = ret_list[0] if ret_list else ""
+        if ret_str.startswith("SUCCESS"):
+            logger.info(f"【{account_id}】商品 {item_id} 网页版下架成功")
+            return {"success": True, "message": "下架成功", "cookies_str": cookies_str}
+        if ("TOKEN_EXPIRED" in ret_str or "FAIL_SYS_TOKEN_EXOIRED" in ret_str) and retry_count < 2:
+            await asyncio.sleep(0.6)
+            return await offline_item_via_web(account_id, cookies_str, item_id, retry_count + 1)
+        logger.warning(f"【{account_id}】商品 {item_id} 网页版下架失败: {ret_str}")
+        return {"success": False, "message": ret_str or "下架失败", "cookies_str": cookies_str}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"【{account_id}】商品 {item_id} 网页版下架异常: {exc}")
+        return {"success": False, "message": str(exc), "cookies_str": cookies_str}
+
+
+async def offline_items_via_web(
+    account_id: str,
+    cookies_str: str,
+    item_ids: list[str],
+) -> dict:
+    """逐个网页版下架（非鱼小铺账号兜底通道），返回与批量下架一致的结果结构。"""
+    import asyncio
+
+    results = []
+    suc_count = 0
+    for iid in item_ids:
+        r = await offline_item_via_web(account_id, cookies_str, iid)
+        results.append({"item_id": str(iid), "success": r["success"]})
+        if r["success"]:
+            suc_count += 1
+        await asyncio.sleep(1.0)  # 轻微限速
+    return {
+        "success": suc_count > 0,
+        "message": f"下架成功 {suc_count} 个，失败 {len(results) - suc_count} 个（网页版通道）",
+        "suc_count": suc_count,
+        "fail_count": len(results) - suc_count,
+        "results": results,
+        "cookies_str": cookies_str,
+    }
+
+
 async def batch_offline_items_from_xianyu(
     account_id: str,
     cookies_str: str,
@@ -222,6 +291,10 @@ async def batch_offline_items_from_xianyu(
 
                 # 其他错误
                 logger.warning(f"【{account_id}】批量下架失败: {ret_str} | 请求={ids_str}")
+                if "UNAUTHORIZED" in ret_str:
+                    # 非鱼小铺账号没有卖家批量下架权限 → 网页版 downshelf 兜底
+                    logger.info(f"【{account_id}】卖家下架接口无权限（非鱼小铺），切换网页版下架")
+                    return await offline_items_via_web(account_id, cookies_str, cleaned_ids)
                 return {
                     "success": False,
                     "message": ret_str or "下架失败",
