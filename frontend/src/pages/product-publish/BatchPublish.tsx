@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 批量发布页面
  *
  * 功能：
@@ -7,7 +7,7 @@
  * 3. 提交批量发布任务（后台异步执行）
  * 4. 轮询任务进度，展示完成状态
  */
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { Fragment, useState, useEffect, useRef, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Layers, CheckCircle, XCircle, Clock, Play, Loader2 } from 'lucide-react'
@@ -453,15 +453,25 @@ export function BatchPublish() {
             </div>
             {progress.total > 0 && (
               <div className="mb-3">
-                <div className="flex flex-wrap items-center gap-1.5 w-full">
+                <div className="flex items-center w-full overflow-x-auto">
                   {STAGES.map((s, i) => {
                     const done = progress.finished || (currentStageIndex >= 0 && i < currentStageIndex)
                     const active = !progress.finished && i === currentStageIndex
                     return (
-                      <div key={s.key} className="flex items-center gap-1.5">
+                      <Fragment key={s.key}>
+                        {i > 0 && (
+                          <span
+                            className={
+                              'h-px flex-1 min-w-3 ' +
+                              (done || active
+                                ? 'bg-blue-400 dark:bg-blue-600'
+                                : 'bg-slate-300 dark:bg-slate-600')
+                            }
+                          />
+                        )}
                         <span
                           className={
-                            'whitespace-nowrap rounded-full px-3 py-1 text-xs border ' +
+                            'shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-xs border ' +
                             (done
                               ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300'
                               : active
@@ -471,8 +481,7 @@ export function BatchPublish() {
                         >
                           {s.label}
                         </span>
-                        {i < STAGES.length - 1 && <span className="text-slate-300 dark:text-slate-600">→</span>}
-                      </div>
+                      </Fragment>
                     )
                   })}
                 </div>
