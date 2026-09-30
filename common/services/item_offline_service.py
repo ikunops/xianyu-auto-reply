@@ -66,16 +66,19 @@ async def offline_item_via_web(
             version=WEB_DOWNSHELF_VERSION,
             data={"itemId": str(item_id)},
         )
-        ret_list = res.get("ret") or []
+        # mtop_call 返回包装结构：真正的 mtop 响应在 res['res']
+        inner = res.get("res") or {}
+        ret_list = inner.get("ret") or res.get("ret") or []
         ret_str = ret_list[0] if ret_list else ""
+        cookies_out = res.get("cookies_str") or cookies_str
         if ret_str.startswith("SUCCESS"):
             logger.info(f"【{account_id}】商品 {item_id} 网页版下架成功")
-            return {"success": True, "message": "下架成功", "cookies_str": cookies_str}
+            return {"success": True, "message": "下架成功", "cookies_str": cookies_out}
         if ("TOKEN_EXPIRED" in ret_str or "FAIL_SYS_TOKEN_EXOIRED" in ret_str) and retry_count < 2:
             await asyncio.sleep(0.6)
             return await offline_item_via_web(account_id, cookies_str, item_id, retry_count + 1)
         logger.warning(f"【{account_id}】商品 {item_id} 网页版下架失败: {ret_str}")
-        return {"success": False, "message": ret_str or "下架失败", "cookies_str": cookies_str}
+        return {"success": False, "message": ret_str or "下架失败", "cookies_str": cookies_out}
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"【{account_id}】商品 {item_id} 网页版下架异常: {exc}")
         return {"success": False, "message": str(exc), "cookies_str": cookies_str}
