@@ -1174,94 +1174,94 @@ class XianyuPublisher:
         return ""
 
     async def _get_leaf_category_options(self, container=None, exclude_texts: set[str] | None = None):
-        root = container or self.page
-        if not root:
-            return []
+        """读取类目下拉里的候选。
 
-        option_selectors = [
-            '.ant-select-item-option',
-            '.ant-select-item',
-            '[class*="ant-select-item"]',
-            '[role="option"]',
-            'li',
-            'div[class*="option"]',
-            'div[class*="item"]',
-            'span[class*="item"]',
-            '.category-option',
-            '.category-item',
-            '[class*="category-item"]',
-            '[class*="CategoryItem"]',
-        ]
-        excluded = {
-            normalized
-            for normalized in [self._normalize_category_text(text) for text in (exclude_texts or set())]
-            if normalized
-        }
+        关键修复（2026-09-26）：
+        antd 的 Select 会把下拉面板渲染到 body 层的 portal（div.ant-select-dropdown），
+        它并不在「分类」表单项内部。旧实现把调用方传进来的容器（= 分类表单项）当根节点，
+        于是 query_selector_all('.ant-select-item-option') 永远返回 0，
+        最后只能从表单项里捞到「当前已选中的那 1 个值」——
+        这正是日志里「分类候选提取不足，仅找到 1 个候选」的真因。
+        现在改为：优先在页面级「可见的 antd 下拉」里找候选。
+        """
+        excluded: set[str] = set()
+        for text in (exclude_texts or []):
+            normalized = self._normalize_category_text(text)
+            if normalized:
+                excluded.add(normalized)
 
-        async def collect_options(selectors: list[str]):
-            best_collected = []
-            for selector in selectors:
+        async def _collect(root) -> list:
+            if root is None:
+                return []
+            try:
+                options = await root.query_selector_all(
+                    '.ant-select-item-option, .ant-select-item, [class*="ant-select-item"]'
+                )
+            except Exception:
+                return []
+            found: list = []
+            seen: set[str] = set()
+            for option in options:
                 try:
-                    options = await root.query_selector_all(selector)
+                    if not await option.is_visible():
+                        continue
+                    text = self._normalize_category_text(await option.inner_text())
+                    if not text or text in excluded or text in seen:
+                        continue
+                    box = await option.bounding_box()
+                    if not box:
+                        continue
+                    if box.get("height", 0) <= 0 or box.get("width", 0) <= 0:
+                        continue
+                    # 只排掉明显不是「单条候选」的巨块容器
+                    if box.get("height", 0) > 120:
+                        continue
+                    seen.add(text)
+                    found.append((text, option))
                 except Exception:
                     continue
+            return found
 
-                current_options = []
-                current_seen = set()
-                for option in options:
-                    try:
-                        if not await option.is_visible():
-                            continue
+        # 1) 页面级可见的 antd 下拉（portal），取候选最多的那个
+        best: list = []
+        try:
+            dropdowns = await self.page.query_selector_all('.ant-select-dropdown')
+        except Exception:
+            dropdowns = []
+        for dropdown in dropdowns:
+            try:
+                if not await dropdown.is_visible():
+                    continue
+            except Exception:
+                continue
+            got = await _collect(dropdown)
+            if len(got) > len(best):
+                best = got
+        if best:
+            return best
 
-                        raw_text = await option.inner_text()
-                        raw_lines = self._get_category_text_lines(raw_text)
-                        if len(raw_lines) != 1:
-                            continue
+        # 2) 兼容旧调用：调用方给的容器；再兜底整页
+        for root in (container, self.page):
+            got = await _collect(root)
+            if got:
+                return got
+        return []
 
-                        text = self._normalize_category_text(raw_text)
-                        if not text or text in excluded or text in current_seen:
-                            continue
+    def _order_category_options(self, options: list) -> list:
+        """把候选类目按「优先尝试」排序。
 
-                        box = await option.bounding_box()
-                        if not box:
-                            continue
-                        if box.get("height", 0) <= 0 or box.get("width", 0) <= 0:
-                            continue
-                        if box.get("height", 0) > 52:
-                            continue
+        平台会先自动识别一个类目；当它恰好是网页版发不了的那类时，老代码会一直
+        卡在它身上。这里把实测可用的类目提前、已知受限的压到最后。
+        """
+        preferred = list(self.PREFERRED_CATEGORY_ORDER)
 
-                        current_seen.add(text)
-                        current_options.append((text, option, box))
-                    except Exception:
-                        continue
+        def rank(item):
+            name = item[0]
+            if name in preferred:
+                return (0, preferred.index(name))
+            return (2 if name in self.BLOCKED_CATEGORIES else 1, name)
 
-                current_options.sort(
-                    key=lambda item: (
-                        round(item[2].get("y", 0), 2),
-                        round(item[2].get("x", 0), 2),
-                        round(item[2].get("height", 0), 2),
-                        round(item[2].get("width", 0), 2),
-                    )
-                )
-                normalized_options = [(text, option) for text, option, _ in current_options]
-                if len(normalized_options) > len(best_collected):
-                    best_collected = normalized_options
-
-            return best_collected
-
-        best_options = await collect_options(option_selectors)
-        if len(best_options) > 1:
-            return best_options
-
-        fallback_options = await collect_options(['div', 'span', 'button', 'a'])
-        if len(fallback_options) > len(best_options):
-            logger.info(f"分类候选通用扫描补充找到 {len(fallback_options)} 个候选")
-            return fallback_options
-
-        if len(best_options) <= 1:
-            logger.warning(f"分类候选提取不足，仅找到 {len(best_options)} 个候选")
-
-        return best_options
+        return sorted(options, key=rank)
 
     async def _reopen_category_candidates(
         self,
@@ -1313,18 +1313,84 @@ class XianyuPublisher:
         '办公软件&效率软件/电脑基础培训', '互联网产品与运营技能培训', '人力资源管理培训',
     }
 
+    # 网页版实测「可发布」的类目（实测点击后无“网页版暂不支持”提示），
+    # 按优先尝试顺序排列：类目下拉候选会按这个顺序排在前面。
+    PREFERRED_CATEGORY_ORDER = (
+        '电子资料',
+        '其他闲置',
+        '软件/程序/网站开发',
+        'AI教学服务',
+        'DeepSeek服务',
+        'AI模型训练',
+        'AI编程工具/服务',
+    )
+
     async def _category_restricted(self) -> bool:
-        """页面上是否有「可见」的受限提示（DOM 里常有隐藏的残留节点，必须判可见性）"""
+        """当前类目是否被网页版限制。
+
+        实测（2026-09-26）：该提示的文案节点不是「叶子节点」（外层 div 还包着
+        「点击展示二维码」等子节点），旧实现只扫「无子节点」的元素，永远命中不到 →
+        一直漏报（页面明明显示被拦，代码却以为没事，于是点发布必然失败）。
+        改成直接读整页已渲染文本；实测该文案会随真实选中的类目出现/消失，因此可作判据。
+        """
         try:
-            return bool(await self.page.evaluate("""() => {
-                const bad = '网页版暂不支持发布此分类';
-                return [...document.querySelectorAll('*')].some(e => !e.children.length
-                    && (e.textContent || '').indexOf(bad) >= 0
-                    && (() => { const r = e.getBoundingClientRect();
-                                return r.width > 0 && r.height > 0; })());
-            }"""))
+            return bool(await self.page.evaluate(
+                "() => (document.body.innerText || '').indexOf('网页版暂不支持发布此分类') >= 0"
+            ))
         except Exception:
             return False
+
+    async def _dropdown_open(self) -> bool:
+        """当前是否有可见的 antd 下拉面板。"""
+        try:
+            return await self.page.locator('.ant-select-dropdown:visible').count() > 0
+        except Exception:
+            return False
+
+    async def _close_category_dropdown(self) -> None:
+        """关掉残留打开的类目下拉。
+
+        实测踩坑：上一次没选中时下拉会一直开着，此时再点 .ant-select-selector
+        不会「打开」而是把它「切换成关闭」→ 下一个候选永远找不到。
+        """
+        try:
+            if await self._dropdown_open():
+                await self.page.keyboard.press('Escape')
+                await asyncio.sleep(0.8)
+        except Exception:
+            pass
+
+    async def _find_dropdown_option(self, name: str):
+        """在「当前可见的 antd 下拉」里按文本找候选，返回 Locator（找不到返回 None）。
+
+        antd 的下拉面板挂在 body 层的 portal（div.ant-select-dropdown），
+        候选是 .ant-select-item-option；虚拟列表一次只渲染十来个，故需要时先滚动。
+        """
+        try:
+            popup = self.page.locator('.ant-select-dropdown:visible').last
+            if await popup.count() == 0:
+                return None
+        except Exception:
+            return None
+        try:
+            options = popup.locator('.ant-select-item-option')
+            total = await options.count()
+        except Exception:
+            return None
+        fallback = None
+        for index in range(total):
+            candidate = options.nth(index)
+            try:
+                if not await candidate.is_visible():
+                    continue
+                text = (await candidate.inner_text()).strip()
+            except Exception:
+                continue
+            if text == name:
+                return candidate
+            if fallback is None and name in text:
+                fallback = candidate
+        return fallback
 
     async def _pick_category_by_name(self, name: str) -> bool:
         """打开类目下拉并选中指定类目。
@@ -1332,303 +1398,221 @@ class XianyuPublisher:
         ant-select 只响应 mousedown，JS 的 el.click() 打不开下拉，必须用真实鼠标点击；
         下拉是虚拟列表（一次只渲染十来个），找不到目标就往下滚一格再试。
         """
-        try:
-            combo = await self.page.query_selector('[class*="categor"] .ant-select-selector')
-            if not combo or not await combo.is_visible():
+        if not await self._dropdown_open():
+            try:
+                combo = await self.page.query_selector('[class*="categor"] .ant-select-selector')
+                if not combo or not await combo.is_visible():
+                    return False
+                # 点击展开也要校验：antd 偶发吞掉这次点击（表现为毫无反应），
+                # 先 Esc 复位再补点，最多 3 次
+                opened = False
+                for _attempt in range(3):
+                    await combo.click()
+                    await asyncio.sleep(1.8)
+                    if await self._dropdown_open():
+                        opened = True
+                        break
+                    await self._close_category_dropdown()
+                if not opened:
+                    logger.warning("⚠️ 类目下拉三次尝试均未展开")
+                    return False
+            except Exception as exc:
+                logger.warning(f"⚠️ 打开类目下拉失败: {exc}")
                 return False
-            await combo.click()
-        except Exception as exc:
-            logger.warning(f"⚠️ 打开类目下拉失败: {exc}")
-            return False
 
         await asyncio.sleep(1.5)
-        for _ in range(6):
+        for attempt in range(6):
+            # 必须用「真实鼠标点击」：实测 JS 的 el.click() 只会改下拉的显示值，
+            # 闲鱼 React 内部仍然保留被禁的类目 → 页面上「网页版暂不支持发布此分类」
+            # 的提示不消失，点发布照样被拦。Playwright 的 locator.click() 才是可信点击。
             try:
-                hit = await self.page.evaluate("""(name) => {
-                    const items = [...document.querySelectorAll('.ant-select-item-option, [role="option"]')];
-                    const vis = items.filter(e => { const r = e.getBoundingClientRect();
-                                                    return r.width > 0 && r.height > 0; });
-                    const el = vis.find(e => (e.innerText || '').trim() === name)
-                            || vis.find(e => (e.innerText || '').trim().indexOf(name) >= 0);
-                    if (!el) return false;
-                    el.scrollIntoView();
-                    el.click();
-                    return true;
-                }""", name)
+                option = await self._find_dropdown_option(name)
+                if option is not None:
+                    try:
+                        await option.scroll_into_view_if_needed()
+                    except Exception:
+                        pass
+                    # 点击后必须校验「选择框文本真的变了」：antd 偶发吞点击
+                    # （候选节点重渲染/事件未命中），单击无效时升级为
+                    # 坐标点击、mousedown 事件重放，直到选择框文本确实变化。
+                    for click_try in range(3):
+                        try:
+                            if click_try == 0:
+                                await option.click(timeout=8000)
+                            elif click_try == 1:
+                                box = await option.bounding_box()
+                                if box:
+                                    await self.page.mouse.click(
+                                        box['x'] + box['width'] / 2,
+                                        box['y'] + box['height'] / 2)
+                                else:
+                                    await option.click(timeout=8000)
+                            else:
+                                js = (
+                                    "(el) => {"
+                                    " const r = el.getBoundingClientRect();"
+                                    " const o = {bubbles: true, cancelable: true, view: window,"
+                                    " clientX: r.x + r.width / 2, clientY: r.y + r.height / 2, button: 0};"
+                                    " el.dispatchEvent(new MouseEvent('mousedown', o));"
+                                    " el.dispatchEvent(new MouseEvent('mouseup', o));"
+                                    " el.dispatchEvent(new MouseEvent('click', o));"
+                                    " }"
+                                )
+                                await option.evaluate(js)
+                        except Exception as exc:
+                            logger.warning(f"⚠️ 选择类目 {name} 第{click_try + 1}次点击异常: {exc}")
+                        await asyncio.sleep(1.6)
+                        current = await self._get_selected_category_text()
+                        if current and (name in current or current in name):
+                            return True
+                        # 点击被吞后下拉可能已收起，重开一次再找
+                        if not await self._dropdown_open():
+                            await self._close_category_dropdown()
+                            if not await self._open_category_dropdown():
+                                break
+                    # 三种点击都没生效 → 回到外层循环重新定位候选
+                    continue
             except Exception as exc:
                 logger.warning(f"⚠️ 选择类目 {name} 异常: {exc}")
-                hit = False
-            if hit:
-                await asyncio.sleep(1.5)
-                return True
+            # 候选是虚拟列表，目标可能在下方还没渲染 → 对可见下拉面板滚动一格再找
             try:
                 await self.page.evaluate("""() => {
-                    const d = document.querySelector('div.ant-select-dropdown, [class*="dropdown"]');
-                    if (!d) return;
-                    for (const n of [d, ...d.querySelectorAll('*')]) {
-                        if (n.scrollHeight > n.clientHeight + 5) n.scrollTop += 120;
-                    }
+                    const dds = Array.from(document.querySelectorAll('.ant-select-dropdown, [class*="dropdown"]'))
+                        .filter(d => { const r = d.getBoundingClientRect(); return r.width > 0 && r.height > 0; });
+                    dds.forEach(d => {
+                        for (const n of [d, ...d.querySelectorAll('*')]) {
+                            if (n.scrollHeight > n.clientHeight + 5) n.scrollTop += 120;
+                        }
+                    });
                 }""")
             except Exception:
                 pass
             await asyncio.sleep(0.6)
+        await self._close_category_dropdown()
         return False
 
+    async def _get_selected_category_text(self) -> str:
+        """读取「分类」选择框里当前已选中的文本。"""
+        selectors = [
+            '[class*="categor"] .ant-select-selection-item',
+            '[class*="category"] .ant-select-selection-item',
+            '[class*="Categor"] .ant-select-selection-item',
+        ]
+        for selector in selectors:
+            try:
+                element = await self.page.query_selector(selector)
+                if not element:
+                    continue
+                text = self._normalize_category_text(await element.inner_text())
+                if text:
+                    return text
+            except Exception:
+                continue
+        return ""
+
+    async def _open_category_dropdown(self) -> bool:
+        """真实鼠标点击 antd 的 .ant-select-selector，展开类目下拉。
+
+        实测（2026-09-26 探针）：antd 的 Select 只响应真实鼠标点击，JS 的 el.click()
+        展不开下拉；展开后的面板被渲染到 body 层的 portal（div.ant-select-dropdown），
+        所以候选必须从「页面级可见的 .ant-select-dropdown」里读，不能从表单项里读。
+        """
+        selectors = [
+            '[class*="categor"] .ant-select-selector',
+            '[class*="category"] .ant-select-selector',
+        ]
+        for selector in selectors:
+            try:
+                element = await self.page.query_selector(selector)
+                if not element or not await element.is_visible():
+                    continue
+                for _attempt in range(3):
+                    await element.click()
+                    await asyncio.sleep(1.8)
+                    if await self._dropdown_open():
+                        return True
+                    await self._close_category_dropdown()
+                return False
+            except Exception:
+                continue
+        return False
+
+    async def _confirm_category_selected(self, name: str) -> str:
+        """确认类目真的被选中：返回确认后的类目文本，未选中则返回空串。"""
+        await asyncio.sleep(2.0)
+        current = await self._get_selected_category_text()
+        if current and (name in current or current in name):
+            return current
+        return ""
+
     async def _select_category(self):
-        """选择商品分类（按原项目整体逻辑迁回）"""
+        """选择商品分类。
+
+        背景：平台自动识别的类目经常是网页版发不了的（例如「IT/编程/计算机考试培训」），
+        点发布会提示「网页版暂不支持发布此分类，请使用闲鱼APP扫码继续发布」，必须改选其他类目。
+        实测可用类目见 PREFERRED_CATEGORY_ORDER。
+
+        旧实现的两个坑（2026-09-26 修复，实测复现并确认）：
+        1. 候选是从「分类表单项目」里找的，但 antd 的下拉面板挂在 body 层的 portal 上，
+           表单项里只剩「当前已选中的那 1 个」→ 日志只会打印「仅找到 1 个候选」；
+        2. 展开下拉点的是 [class*="category"] 这个外层容器，而不是 .ant-select-selector，
+           结果下拉根本没展开 → 换类目必然失败、只能沿用被禁的自动识别类目。
+        """
         logger.info("\n[步骤6] 📂 选择分类...")
 
-        # 平台自动识别的类目经常是网页版发不了的（甚至识别成「游戏其他」并多出必填项），先主动选中电子资料
-        if await self._pick_category_by_name(self.PREFERRED_CATEGORY):
-            logger.info(f"✅ 步骤6已选择分类: {self.PREFERRED_CATEGORY}")
+        tried: list[str] = []
+        best_effort = ""  # 能选中、但被判受限的类目（优先级最高的那个，最终兜底用）
+
+        # 1) 点名尝试：按优先级打开下拉点选，再校验「确实选中 + 不受限」
+        for name in self.PREFERRED_CATEGORY_ORDER:
+            tried.append(name)
+            if not await self._pick_category_by_name(name):
+                continue
+            current = await self._confirm_category_selected(name)
+            if not current:
+                logger.warning(
+                    "⚠️ 点选「%s」未生效（当前选中「%s」），继续尝试"
+                    % (name, await self._get_selected_category_text())
+                )
+                continue
+            if not best_effort:
+                best_effort = current
+            if await self._category_restricted():
+                logger.warning(f"⚠️ 类目「{current}」网页版受限，继续尝试其他类目")
+                continue
+            logger.info(f"✅ 步骤6已选择分类: {current}")
             return
-        logger.warning(f"⚠️ 未能选中 {self.PREFERRED_CATEGORY}，继续原流程")
 
-        category_selectors = [
-            '[class*="category"]:has(button)',
-            '[class*="分类"]:has(button)',
-            '.category-select',
-            'button:has-text("分类")',
-            '.category-item',
-        ]
-
-        category_element = None
-        for selector in category_selectors:
-            try:
-                category_element = await self.page.query_selector(selector)
-                if category_element:
-                    logger.info(f"✅ 找到分类元素: {selector}")
-                    break
-            except Exception:
-                continue
-
-        if category_element:
-            await category_element.click()
-            await asyncio.sleep(1)
-            await asyncio.sleep(1)
-
-            option_selectors = [
-                '[class*="option"]',
-                '[class*="dropdown-item"]',
-                'li:visible',
-                '.category-option',
-            ]
-
-            options = None
-            for selector in option_selectors:
+        # 2) 兜底：直接枚举页面级可见下拉的全部候选，按优先级逐个点选
+        if await self._open_category_dropdown():
+            options = await self._get_leaf_category_options(exclude_texts=set(tried))
+            options = self._order_category_options(options)
+            logger.info("兜底候选 %d 个: %s" % (len(options), [t for t, _ in options][:12]))
+            for text, element in options:
                 try:
-                    options = await self.page.query_selector_all(selector)
-                    if options and len(options) > 0:
-                        logger.info(f"✅ 找到 {len(options)} 个分类选项")
-                        break
+                    await element.scroll_into_view_if_needed()
+                    await element.click()
                 except Exception:
                     continue
-
-            if options:
-                first_option = options[0]
-                option_text = await first_option.inner_text()
-                logger.info(f"选择分类: {option_text}")
-                await first_option.click()
-                await asyncio.sleep(1)
-
-                logger.info("\n[步骤7] 🔍 检查分类是否可用...")
-
-                restricted_text = "网页版暂不支持发布此分类"
-                restricted_selector = f"text={restricted_text}"
-
-                try:
-                    restricted = await self.page.wait_for_selector(restricted_selector, timeout=2000)
-                    if restricted:
-                        logger.error(f"❌ 检测到限制: {restricted_text}")
-                        logger.error("❌ 此分类无法在网页版发布，请更换分类")
-                        raise Exception(f"此分类无法在网页版发布: {option_text}")
-                except Exception:
-                    logger.info("✅ 分类可用，可以继续发布")
-
-                logger.info("\n[步骤7.1] 🔍 检查是否需要选择子分类...")
-                await asyncio.sleep(2)
-
-                max_category_levels = 5
-                for level in range(max_category_levels):
-                    try:
-                        new_category = await self.page.query_selector('[class*="category"]:visible, [class*="分类"]:visible')
-                        if not new_category:
-                            break
-
-                        await new_category.click()
-                        await asyncio.sleep(1)
-
-                        options = await self.page.query_selector_all('[class*="option"]:visible, li:visible')
-                        if options:
-                            option_text = await options[0].inner_text()
-                            logger.info(f"选择第 {level + 2} 级分类: {option_text}")
-                            await options[0].click()
-                            await asyncio.sleep(1)
-
-                            try:
-                                restricted = await self.page.wait_for_selector(restricted_selector, timeout=1000)
-                                if restricted:
-                                    logger.error(f"❌ 检测到限制: {restricted_text}")
-                                    raise Exception(f"此分类无法在网页版发布: {option_text}")
-                            except Exception:
-                                pass
-                        else:
-                            break
-                    except Exception:
-                        break
-
-                logger.info("✅ 分类选择完成")
-            else:
-                logger.warning("⚠️ 未找到分类选项，可能分类已自动选择")
-        else:
-            logger.warning("⚠️ 未找到分类选择元素，跳过")
-
-        logger.info("\n[步骤6] 📂 选择固定分类...")
-
-        category_selectors = [
-            '[class*="categoryText"]',
-            '[class*="category"]',
-            'div:has-text("属性规格")',
-            '[class*="categoryText--MCLwjrBN"]',
-            'div[class*="Category"]',
-            'span[class*="category"]',
-            '[class*="Category"]',
-            'div:has-text("选择分类")',
-            'div:has-text("分类")',
-            'span:has-text("选择分类")',
-            '.next-select',
-            '.ant-select',
-            '[role="combobox"]',
-            'input[placeholder*="分类"]',
-            'input[placeholder*="类目"]',
-        ]
-
-        category_element = None
-        for selector in category_selectors:
-            try:
-                category_element = await self.page.wait_for_selector(selector, timeout=2000)
-                if category_element:
-                    logger.info(f"✅ 找到分类元素: {selector}")
-                    break
-            except Exception:
-                continue
-
-        if category_element:
-            await category_element.click()
-            await asyncio.sleep(2)
-
-            logger.info("查找分类选项...")
-
-            category_list_selectors = [
-                'div.ant-select-dropdown',
-                '.ant-select-dropdown',
-                '[class*="categoryList"]',
-                '[class*="category-list"]',
-                '[role="listbox"]',
-                '.ant-dropdown',
-            ]
-
-            category_list = None
-            for selector in category_list_selectors:
-                try:
-                    category_list = await self.page.wait_for_selector(selector, timeout=2000)
-                    if category_list:
-                        logger.info(f"✅ 找到分类列表: {selector}")
-                        break
-                except Exception:
+                current = await self._confirm_category_selected(text)
+                if not current:
                     continue
+                if not best_effort:
+                    best_effort = current
+                if not await self._category_restricted():
+                    logger.info(f"✅ 步骤6已选择分类(兜底): {current}")
+                    return
+                logger.warning(f"⚠️ 兜底类目「{current}」受限，换下一个")
 
-            if category_list:
-                category_options = await self._get_leaf_category_options(category_list)
+        # 3) 所有候选都被判受限：至少换成「优先级最高且能选中」的类目，
+        #    绝不要继续沿用平台自动识别出来的那个受限类目（原代码就是这样卡死的）
+        if best_effort:
+            if await self._pick_category_by_name(best_effort):
+                logger.warning(f"⚠️ 所有候选都提示受限，改为尽力尝试「{best_effort}」")
+                return
+            logger.warning("⚠️ 再次选中兜底类目失败")
 
-                if category_options:
-                    logger.info(f"找到 {len(category_options)} 个分类选项")
-
-                    category_text, first_category = category_options[0]
-                    logger.info(f"选择分类: {category_text}")
-                    await first_category.click()
-                    await asyncio.sleep(2)
-
-                    restricted_text = "网页版暂不支持发布此分类"
-                    restricted_selector = f"text={restricted_text}"
-
-                    try:
-                        restricted = await self.page.wait_for_selector(restricted_selector, timeout=2000)
-                        if restricted:
-                            logger.warning(f"⚠️ 检测到限制: {restricted_text}")
-                            logger.info("当前分类不支持发布，尝试选择其他分类...")
-
-                            retry_options = await self._reopen_category_candidates(
-                                category_selectors=category_selectors,
-                                category_list_selectors=category_list_selectors,
-                                exclude_texts={category_text},
-                            )
-                            if retry_options:
-                                second_category_text, second_category = retry_options[0]
-                                logger.info(f"选择第二个分类: {second_category_text}")
-                                await second_category.click()
-                                await asyncio.sleep(2)
-
-                                try:
-                                    restricted = await self.page.wait_for_selector(restricted_selector, timeout=2000)
-                                    if restricted:
-                                        logger.warning("⚠️ 第二个分类也不支持，尝试第三个分类")
-                                        third_retry_options = await self._reopen_category_candidates(
-                                            category_selectors=category_selectors,
-                                            category_list_selectors=category_list_selectors,
-                                            exclude_texts={category_text, second_category_text},
-                                        )
-                                        if third_retry_options:
-                                            third_category_text, third_category = third_retry_options[0]
-                                            logger.info(f"选择第三个分类: {third_category_text}")
-                                            await third_category.click()
-                                            await asyncio.sleep(2)
-                                        else:
-                                            logger.warning("⚠️ 请手动选择分类后发布")
-                                except Exception:
-                                    logger.info("✅ 第二个分类可用")
-                            else:
-                                logger.error("❌ 没有其他分类可选，跳过分类选择")
-                    except Exception:
-                        logger.info("✅ 分类可用，继续发布")
-
-                    await asyncio.sleep(2)
-                    logger.info("检查是否需要选择子分类...")
-
-                    for level in range(3):
-                        try:
-                            sub_category_list = await self.page.query_selector('[class*="categoryList"]:visible, [class*="ant-dropdown"]:visible')
-
-                            if not sub_category_list:
-                                break
-
-                            sub_options = await sub_category_list.query_selector_all('[role="option"]:visible, li:visible')
-
-                            if sub_options:
-                                sub_text = await sub_options[0].inner_text()
-                                logger.info(f"选择第 {level + 2} 级分类: {sub_text}")
-                                await sub_options[0].click()
-                                await asyncio.sleep(2)
-
-                                try:
-                                    restricted = await self.page.wait_for_selector(restricted_selector, timeout=1000)
-                                    if restricted:
-                                        logger.warning("⚠️ 子分类受限，停止选择")
-                                        break
-                                except Exception:
-                                    pass
-                            else:
-                                break
-                        except Exception:
-                            break
-
-                    logger.info("✅ 分类选择完成")
-                else:
-                    logger.warning("⚠️ 未找到分类选项，跳过")
-            else:
-                logger.warning("⚠️ 未找到分类列表，跳过")
-        else:
-            logger.warning("⚠️ 未找到分类选择元素，跳过")
+        logger.warning("⚠️ 未能选出可用类目，保持平台自动识别结果继续发布")
 
     async def _fill_price(self, item_data: dict):
         """填写售价和原价（按原项目流程）"""
@@ -2107,6 +2091,10 @@ class XianyuPublisher:
                 result["success"] = False
                 result["message"] = '可能发布失败（页面未跳转，仍停留在发布页）'
                 result["failure_reason"] = 'page_not_redirected'
+                if '网页版暂不支持发布此分类' in (page_text or ''):
+                    result["failure_reason"] = 'category_blocked_on_web'
+                    result["message"] = '发布被拦：当前类目「网页版暂不支持发布此分类」'
+                    logger.error("❌ 发布被拦：类目在网页版不可发布（网页版暂不支持发布此分类）")
                 logger.warning("⚠️ 可能发布失败")
                 logger.warning("⚠️ 页面未跳转，仍停留在发布页")
                 logger.warning(f"⚠️ 当前URL: {current_url}")
