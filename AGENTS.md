@@ -19,7 +19,7 @@
 | 服务 | 端口 | 说明 |
 |------|------|------|
 | frontend | 9000 | 主系统前端 |
-| backend-web | 8089 | 主系统 API 网关 |
+| backend-web | 8778 | 主系统 API 网关 |
 | websocket | 8090 | 闲鱼连接、消息处理、登录、订单联动 |
 | scheduler | 8091 | 定时任务（自动发货、评价、订单拉取、Cookie 刷新） |
 | promotion/backend | 8092 | 返佣后端 |

@@ -2,7 +2,7 @@
 # ==========================================
 # 闲鱼自动回复系统 - 远程 MySQL/Redis 一键部署脚本
 # 使用外部（远程）MySQL 和 Redis，仅启动应用服务（不内置 mysql/redis 容器）
-# 自动生成 docker-compose.remote.yml 与 .env.remote 并拉取镜像启动
+# 自动生成 docker-compose.remote.yml 与 .env.remote，并用本仓库源码构建镜像后启动
 # 用法: bash deploy_remote.sh
 # ==========================================
 
@@ -73,15 +73,11 @@ REDIS_DB=0
 
 # 说明：JWT 密钥由数据库统一托管（首次启动自动生成并持久化），无需在此配置
 
-# 端口配置
+# 端口配置（对外暴露端口；backend-web 默认 8778，避免与其他常用服务冲突）
 FRONTEND_PORT=9000
-BACKEND_WEB_PORT=8089
+BACKEND_WEB_PORT=8778
 WEBSOCKET_PORT=8090
 SCHEDULER_PORT=8091
-
-# 镜像配置
-IMAGE_REGISTRY=registry.cn-shanghai.aliyuncs.com/zhinian-software
-IMAGE_TAG=latest
 
 # 日志级别
 LOG_LEVEL=INFO
@@ -139,11 +135,13 @@ cat > "$COMPOSE_FILE" << 'COMPOSEEOF'
 # 由 deploy_remote.sh 自动生成，请勿手动修改
 
 services:
-  # ====== 应用服务（远程镜像 + 远程 MySQL/Redis） ======
+  # ====== 应用服务（本地源码构建 + 远程 MySQL/Redis） ======
 
   # Backend-Web 服务
   backend-web:
-    image: ${IMAGE_REGISTRY:-registry.cn-shanghai.aliyuncs.com/zhinian-software}/xianyu-backend-web:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: backend-web/Dockerfile
     container_name: xianyu-backend-web
     restart: unless-stopped
     environment:
@@ -183,7 +181,8 @@ services:
       - ./xianyu_auto_reply/static:/app/static
       - ./xianyu_auto_reply/backups:/app/backups
     ports:
-      - "${BACKEND_WEB_PORT:-8089}:8089"
+      # 对外暴露端口默认 8778（避免与常用服务 8089 冲突）；容器内部仍为 8089
+      - "${BACKEND_WEB_PORT:-8778}:8089"
     networks:
       - xianyu-network
     healthcheck:
@@ -195,7 +194,9 @@ services:
 
   # WebSocket 服务
   websocket:
-    image: ${IMAGE_REGISTRY:-registry.cn-shanghai.aliyuncs.com/zhinian-software}/xianyu-websocket:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: websocket/Dockerfile
     container_name: xianyu-websocket
     restart: unless-stopped
     environment:
@@ -244,7 +245,9 @@ services:
 
   # Scheduler 服务
   scheduler:
-    image: ${IMAGE_REGISTRY:-registry.cn-shanghai.aliyuncs.com/zhinian-software}/xianyu-scheduler:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: scheduler/Dockerfile
     container_name: xianyu-scheduler
     restart: unless-stopped
     environment:
@@ -291,7 +294,9 @@ services:
 
   # 前端服务
   frontend:
-    image: ${IMAGE_REGISTRY:-registry.cn-shanghai.aliyuncs.com/zhinian-software}/xianyu-frontend:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: docker/frontend/Dockerfile
     container_name: xianyu-frontend
     restart: unless-stopped
     environment:
@@ -356,9 +361,9 @@ $DC_CMD down 2>/dev/null || true
 echo -e "${GREEN}✓ 旧容器已清理${NC}"
 
 echo ""
-echo -e "${YELLOW}步骤 2/3: 拉取最新镜像...${NC}"
-$DC_CMD pull
-echo -e "${GREEN}✓ 镜像拉取完成${NC}"
+echo -e "${YELLOW}步骤 2/3: 从本仓库源码构建镜像（首次构建需要几分钟）...${NC}"
+$DC_CMD build
+echo -e "${GREEN}✓ 镜像构建完成${NC}"
 
 echo ""
 echo -e "${YELLOW}步骤 3/3: 启动服务...${NC}"
@@ -372,12 +377,12 @@ $DC_CMD ps
 
 # 读取端口配置
 frontend_port=$(grep -E "^FRONTEND_PORT=" "$ENV_FILE" 2>/dev/null | cut -d '=' -f2 | tr -d '\r' || echo "9000")
-backend_web_port=$(grep -E "^BACKEND_WEB_PORT=" "$ENV_FILE" 2>/dev/null | cut -d '=' -f2 | tr -d '\r' || echo "8089")
+backend_web_port=$(grep -E "^BACKEND_WEB_PORT=" "$ENV_FILE" 2>/dev/null | cut -d '=' -f2 | tr -d '\r' || echo "8778")
 websocket_port=$(grep -E "^WEBSOCKET_PORT=" "$ENV_FILE" 2>/dev/null | cut -d '=' -f2 | tr -d '\r' || echo "8090")
 scheduler_port=$(grep -E "^SCHEDULER_PORT=" "$ENV_FILE" 2>/dev/null | cut -d '=' -f2 | tr -d '\r' || echo "8091")
 
 frontend_port="${frontend_port:-9000}"
-backend_web_port="${backend_web_port:-8089}"
+backend_web_port="${backend_web_port:-8778}"
 websocket_port="${websocket_port:-8090}"
 scheduler_port="${scheduler_port:-8091}"
 

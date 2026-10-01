@@ -225,8 +225,8 @@ echo 停止主程序...
 taskkill /F /IM "{exe_name}" >nul 2>nul
 
 echo 停止后台服务...
-REM 杀掉4个服务端口（backend-web:8089, websocket:8090, scheduler:8091, frontend:9000）
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8089 "') do taskkill /F /PID %%a >nul 2>nul
+REM 杀掉4个服务端口（backend-web:8778, websocket:8090, scheduler:8091, frontend:9000）
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8778 "') do taskkill /F /PID %%a >nul 2>nul
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8090 "') do taskkill /F /PID %%a >nul 2>nul
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8091 "') do taskkill /F /PID %%a >nul 2>nul
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":9000 "') do taskkill /F /PID %%a >nul 2>nul
