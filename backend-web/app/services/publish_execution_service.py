@@ -22,6 +22,7 @@ from app.services.publish_batch_status_service import PublishBatchStatusService
 from app.services.item_service import ItemService
 from common.models.publish_log import PublishLog
 from common.models.xy_account import XYAccount
+from common.services.item_stock_service import apply_stock_after_publish
 from common.services.publish_execution_service import (
     _bind_material_card_after_publish,
     execute_single_publish,
@@ -363,6 +364,23 @@ class PublishExecutorService:
                                     f"material={material.get('id')} item={result.get('item_id')}: "
                                     f"{bind_info['card_bind_message']}"
                                 )
+                            # 网页版发布页没有库存入口，鱼小铺账号在发布成功后用卖家接口补库存
+                            try:
+                                stock_info = await apply_stock_after_publish(
+                                    account_id=account_id,
+                                    cookie=cookies_str,
+                                    item_id=result.get("item_id"),
+                                    stock=material.get("stock"),
+                                    price=material.get("price"),
+                                    owner_id=user_id,
+                                )
+                                if stock_info.get("stock_message"):
+                                    logger.info(
+                                        f"批量发布补设库存 account={account_id} "
+                                        f"item={result.get('item_id')}: {stock_info['stock_message']}"
+                                    )
+                            except Exception as stock_exc:  # noqa: BLE001
+                                logger.warning(f"批量发布补设库存异常，不影响发布结果: {stock_exc}")
                         else:
                             failed_count += 1
                             await log_svc.update_log(

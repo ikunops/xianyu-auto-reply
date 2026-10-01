@@ -90,6 +90,12 @@ class PublishSingleRequest(BaseModel):
     material_id: Optional[int] = Field(
         None, description="素材ID（从素材库导入时带上；带上才会在发布成功后自动绑定该素材的卡券）"
     )
+    stock: Optional[int] = Field(
+        None, ge=1, le=999999,
+        description="库存（上架数量）；不传则按 material_id 回查素材库。仅鱼小铺账号能真正生效",
+    )
+    spec_name: Optional[str] = Field(None, max_length=32, description="规格名（暂未使用，随素材库一并透传）")
+    spec_value: Optional[str] = Field(None, max_length=64, description="规格值（暂未使用，随素材库一并透传）")
 
 
 class BatchPublishRequest(BaseModel):
@@ -652,3 +658,100 @@ async def _run_batch_publish_background(
         except Exception as e:
             logger.error(f"批量发布后台任务异常: {e}\n{traceback.format_exc()}")
             await PublishBatchStatusService.clear_batch(batch_id)
+
+
+# ==================== 售罄自动重发（个人账号用重发次数模拟库存） ====================
+
+class RestockRunRequest(BaseModel):
+    """手动跑一轮售罄重发"""
+
+    dry_run: bool = Field(True, description="True 只报告候选不发布；False 才真正重发")
+    max_items: int = Field(2, ge=0, le=20, description="本轮最多重发几条")
+
+
+@router.get("/restock/candidates", response_model=ApiResponse)
+async def list_restock_candidates(
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> Dict[str, Any]:
+    """列出「已售出且重发次数还没用完」的素材（只读，不发布）
+
+    个人卖家没有库存入口，靠「卖掉就重发」模拟库存；重发上限就是素材库里的 stock。
+    """
+    from common.services.stock_repost_service import collect_candidates
+
+    owner_id = None if _is_admin(current_user) else current_user.id
+    candidates = await collect_candidates(session, owner_id=owner_id)
+    brief = [
+        {
+            "material_id": c["material_id"],
+            "account_id": c["account_id"],
+            "item_id": c["item_id"],
+            "title": c["item_data"].get("title"),
+            "stock": c["stock"],
+            "success_count": c["success_count"],
+            "remaining": c["remaining"],
+            "last_publish_at": c["last_publish_at"],
+        }
+        for c in candidates
+    ]
+    return ApiResponse(
+        success=True,
+        message=f"共 {len(brief)} 条待重发",
+        data={"list": brief, "total": len(brief)},
+    )
+
+
+@router.post("/restock/run", response_model=ApiResponse)
+async def run_restock(
+    req: RestockRunRequest,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> Dict[str, Any]:
+    """手动跑一轮售罄重发（同步执行，每条约 40-60 秒）
+
+    建议先 dry_run=true 看候选，确认无误后再 dry_run=false 真正重发。
+    前端请把超时时间设长一些。
+    """
+    from common.services.stock_repost_service import run_stock_repost_once
+
+    owner_id = None if _is_admin(current_user) else current_user.id
+    summary = await run_stock_repost_once(
+        session=session,
+        max_items=req.max_items,
+        dry_run=req.dry_run,
+        owner_id=owner_id,
+    )
+    return ApiResponse(
+        success=True,
+        message=(
+            f"扫描到 {len(summary['candidates'])} 条候选，"
+            + ("（dry_run，未发布）" if summary.get("dry_run") else
+               f"重发成功 {len(summary['reposted'])} 条，失败 {len(summary['failed'])} 条")
+        ),
+        data={
+            "dry_run": bool(summary.get("dry_run")),
+            "candidates": [
+                {
+                    "material_id": c["material_id"],
+                    "account_id": c["account_id"],
+                    "item_id": c["item_id"],
+                    "title": c["item_data"].get("title"),
+                    "stock": c["stock"],
+                    "success_count": c["success_count"],
+                    "remaining": c["remaining"],
+                }
+                for c in summary["candidates"]
+            ],
+            "reposted": [
+                {"material_id": r["material_id"], "account_id": r["account_id"],
+                 "old_item_id": r["item_id"], "new_item_id": r.get("new_item_id")}
+                for r in summary["reposted"]
+            ],
+            "failed": [
+                {"material_id": f["material_id"], "account_id": f["account_id"],
+                 "item_id": f["item_id"], "error": f.get("error")}
+                for f in summary["failed"]
+            ],
+        },
+    )

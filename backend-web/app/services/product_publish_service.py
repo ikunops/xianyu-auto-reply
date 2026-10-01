@@ -19,6 +19,15 @@ from common.models.publish_log import PublishLog
 # ==================== 素材库服务 ====================
 
 from common.utils.time_utils import safe_isoformat
+
+
+def _coerce_stock(raw) -> int:
+    """把前端传来的库存规整成 1~999999 的整数，非法值回落到默认 9999。"""
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return 9999
+    return max(1, min(999999, value))
 class ProductMaterialService:
     """商品素材库 CRUD 服务"""
 
@@ -94,6 +103,9 @@ class ProductMaterialService:
             brand=data.get("brand"),
             condition=data.get("condition", "全新"),
             remark=data.get("remark"),
+            stock=_coerce_stock(data.get("stock")),
+            spec_name=(data.get("spec_name") or "份数"),
+            spec_value=(data.get("spec_value") or "1份"),
         )
         self.session.add(material)
         await self.session.commit()
@@ -189,12 +201,16 @@ class ProductMaterialService:
             "title", "description", "price", "original_price", "category",
             "images", "delivery_method", "postage", "address", "brand",
             "condition", "remark",
+            # 库存/规格：素材库编辑里填的值必须真正落库，否则发布器读到的永远是默认值
+            "stock", "spec_name", "spec_value",
         ]
         for field in updatable:
             if field in data and data[field] is not None:
                 value = data[field]
                 if field in ("price", "original_price", "postage"):
                     value = float(value) if value else (None if field == "original_price" else 0)
+                elif field == "stock":
+                    value = _coerce_stock(value)
                 setattr(material, field, value)
 
         await self.session.commit()

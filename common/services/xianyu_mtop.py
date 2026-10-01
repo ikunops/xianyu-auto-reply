@@ -115,11 +115,18 @@ async def mtop_call(
     owner_id: Optional[int] = None,
     extra_params: Optional[Dict[str, str]] = None,
     proxy: Optional[str] = None,
+    origin: str = "https://www.goofish.com",
+    referer: str = "https://www.goofish.com/",
+    extra_headers: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """调用闲鱼 mtop 接口，统一处理令牌过期/Session过期/风控。
 
     Args:
         proxy: 代理地址URL（http://host:port 或 socks5://user:pass@host:port），空则直连。
+        origin: 请求 Origin 头，默认闲鱼网页版；卖家后台接口传 https://seller.goofish.com。
+        referer: 请求 Referer 头，默认闲鱼网页版；卖家后台接口传
+            https://seller.goofish.com/?site=COMMONPRO。
+        extra_headers: 追加/覆盖的请求头，卖家后台接口用于带 idle_site_biz_code=COMMONPRO。
 
     Returns:
         {
@@ -169,14 +176,18 @@ async def mtop_call(
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/x-www-form-urlencoded",
-            "Origin": "https://www.goofish.com",
-            "Referer": "https://www.goofish.com/",
+            "Origin": origin,
+            "Referer": referer,
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                 "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             ),
             "Cookie": current_cookies,
         }
+        # 卖家后台（seller.pc.* / seller.common.*）一族接口必须带 idle_site_biz_code 等
+        # 声明专业版卖家上下文的请求头，缺失会被网关判成非法来源
+        if extra_headers:
+            headers.update(extra_headers)
 
         try:
             timeout = aiohttp.ClientTimeout(total=30)

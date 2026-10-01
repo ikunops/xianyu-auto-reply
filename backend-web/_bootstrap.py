@@ -121,6 +121,27 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("已禁用自动启动Goofish定时采集任务（AUTO_START_CRAWL_JOBS=false）")
     
+    # 售罄自动重发（个人账号用重发次数模拟库存）：默认关闭，STOCK_REPOST_ENABLED=true 打开
+    stock_repost_task = None
+    if settings.stock_repost_enabled:
+        try:
+            from common.services.stock_repost_service import run_stock_repost_loop
+
+            stock_repost_task = asyncio.create_task(
+                run_stock_repost_loop(
+                    interval_seconds=max(60, int(settings.stock_repost_interval_seconds)),
+                    max_items=max(0, int(settings.stock_repost_max_per_run)),
+                )
+            )
+            logger.info(
+                f"售罄自动重发后台任务已启动：间隔 {settings.stock_repost_interval_seconds} 秒，"
+                f"每轮最多 {settings.stock_repost_max_per_run} 条"
+            )
+        except Exception as e:
+            logger.error(f"启动售罄自动重发任务失败: {e}")
+    else:
+        logger.info("售罄自动重发未启用（STOCK_REPOST_ENABLED=false）")
+
     yield
     
     logger.info(f"{settings.project_name} 关闭中...")
@@ -149,6 +170,14 @@ async def lifespan(app: FastAPI):
     from common.services.order_service import close_goofish_connector
     await close_goofish_connector()
     logger.info("goofish API 连接池已关闭")
+
+    # 停止售罄自动重发后台任务
+    if stock_repost_task is not None:
+        stock_repost_task.cancel()
+        try:
+            await stock_repost_task
+        except asyncio.CancelledError:
+            pass
 
     log_retention_sync_task.cancel()
     try:

@@ -2,6 +2,14 @@
 # 闲鱼自动回复系统 - 本地源码构建
 # 用法: docker compose up -d --build
 
+# 全局日志轮转（2026-09-29 事故修复：scheduler 日志涨到 6.2G 把根分区写满，
+# 导致 mysql/backend-web/websocket/scheduler 相继 exit 137，全站不可用）
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
 services:
   # ====== 基础设施 ======
 
@@ -10,8 +18,9 @@ services:
     image: ${MYSQL_IMAGE:-registry.cn-shanghai.aliyuncs.com/zhinian-software/xianyu-mysql:8.0}
     container_name: xianyu-mysql
     restart: unless-stopped
+    logging: *default-logging
     ports:
-      - "127.0.0.1:13306:3306"
+      - "13306:3306"
     environment:
       - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-xianyu@2026}
       - MYSQL_DATABASE=${MYSQL_DATABASE:-xianyu_data}
@@ -24,6 +33,11 @@ services:
       - --max-connections=300
       - --max-allowed-packet=256M
       - --default-time-zone=+08:00
+      # binlog 保留 3 天（2026-09-29 修复：原先 30 天，单个 binlog 涨到 305M，
+      # 叠加容器日志无轮转导致磁盘写满、全站不可用）
+      - --binlog_expire_logs_seconds=259200
+      # 单个 binlog 超过 100M 就滚动，避免单文件过大
+      - --max_binlog_size=100M
     volumes:
       - mysql_data:/var/lib/mysql
     networks:
@@ -40,6 +54,7 @@ services:
     image: ${REDIS_IMAGE:-registry.cn-shanghai.aliyuncs.com/zhinian-software/xianyu-redis:7-alpine}
     container_name: xianyu-redis
     restart: unless-stopped
+    logging: *default-logging
     command: >
       redis-server
       --requirepass ${REDIS_PASSWORD:-xianyu@2026}
@@ -68,6 +83,7 @@ services:
       dockerfile: backend-web/Dockerfile
     container_name: xianyu-backend-web
     restart: unless-stopped
+    logging: *default-logging
     environment:
       - ENVIRONMENT=production
       - MYSQL_HOST=mysql
@@ -96,6 +112,10 @@ services:
       - AUTO_START_CRAWL_JOBS=${AUTO_START_CRAWL_JOBS:-true}
       - BROWSER_HEADLESS=true
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # 售罄自动重发（普通账号用重发次数模拟库存）
+      - STOCK_REPOST_ENABLED=${STOCK_REPOST_ENABLED:-false}
+      - STOCK_REPOST_INTERVAL_SECONDS=${STOCK_REPOST_INTERVAL_SECONDS:-1800}
+      - STOCK_REPOST_MAX_PER_RUN=${STOCK_REPOST_MAX_PER_RUN:-2}
       - SQL_ECHO=${SQL_ECHO:-true}
       - TOKEN_CACHE_TTL_MIN_HOURS=${TOKEN_CACHE_TTL_MIN_HOURS:-5}
       - TOKEN_CACHE_TTL_MAX_HOURS=${TOKEN_CACHE_TTL_MAX_HOURS:-10}
@@ -104,6 +124,19 @@ services:
       - backend_web_logs:/app/backend-web/logs
       - static-files:/app/static
       - backup-files:/app/backups
+      # 库存补丁：仓库文件为准，挂进容器免重建（磁盘 85%，重建要重装 playwright/chromium，风险太大）
+      - ./common/services/xianyu_mtop.py:/app/common/services/xianyu_mtop.py:ro
+      - ./common/services/item_offline_service.py:/app/common/services/item_offline_service.py:ro
+      - ./common/services/seller_item_service.py:/app/common/services/seller_item_service.py:ro
+      - ./common/services/item_stock_service.py:/app/common/services/item_stock_service.py:ro
+      - ./common/services/publish_execution_service.py:/app/common/services/publish_execution_service.py:ro
+      - ./backend-web/app/services/product_publish_service.py:/app/backend-web/app/services/product_publish_service.py:ro
+      - ./backend-web/app/services/publish_execution_service.py:/app/backend-web/app/services/publish_execution_service.py:ro
+      - ./backend-web/app/api/routes/product_publish.py:/app/backend-web/app/api/routes/product_publish.py:ro
+      - ./common/services/stock_repost_service.py:/app/common/services/stock_repost_service.py:ro
+      - ./backend-web/_bootstrap.py:/app/backend-web/_bootstrap.py:ro
+      - ./backend-web/app/core/config.py:/app/backend-web/app/core/config.py:ro
+      - ./backend-web/app/services/xianyu_publisher.py:/app/backend-web/app/services/xianyu_publisher.py:ro
     ports:
       - "${BACKEND_WEB_PORT:-8089}:8089"
     networks:
@@ -127,6 +160,7 @@ services:
       dockerfile: websocket/Dockerfile
     container_name: xianyu-websocket
     restart: unless-stopped
+    logging: *default-logging
     # PID 1 交给 tini：解滑块起的 chromium 孙进程在主进程死后会变孤儿，没有 init 就没人回收
     init: true
     # 我们这个进程直接起的 chromium，tini 管不到（父进程还活着），必须自己 waitpid 回收，
@@ -183,6 +217,8 @@ services:
       - websocket_logs:/app/websocket/logs
       - static-files:/app/static
       - browser_data:/app/browser_data
+      # 解滑块退避补丁：仓库文件为准，挂进容器免重建（磁盘 91%，重建风险太大）
+      - ./websocket/app/services/xianyu/cookie_token_manager.py:/app/websocket/app/services/xianyu/cookie_token_manager.py:ro
     ports:
       - "${WEBSOCKET_PORT:-8090}:8090"
     networks:
@@ -208,6 +244,7 @@ services:
       dockerfile: scheduler/Dockerfile
     container_name: xianyu-scheduler
     restart: unless-stopped
+    logging: *default-logging
     environment:
       - ENVIRONMENT=production
       - MYSQL_HOST=mysql
@@ -261,6 +298,7 @@ services:
       dockerfile: docker/frontend/Dockerfile
     container_name: xianyu-frontend
     restart: unless-stopped
+    logging: *default-logging
     environment:
       - TZ=Asia/Shanghai
     ports:

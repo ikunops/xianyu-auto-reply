@@ -72,6 +72,12 @@ class BackendWebConfig(BaseConfig):
     # 启动时是否自动启动Goofish定时采集任务
     auto_start_crawl_jobs: bool = Field(default=True, alias="AUTO_START_CRAWL_JOBS")
 
+    # 售罄自动重发（个人账号用重发次数模拟库存）。默认关闭：
+    # 打开后后端会常驻一个循环，发现「已售出且重发次数没用完」的素材就自动重新发布。
+    stock_repost_enabled: bool = Field(default=False, alias="STOCK_REPOST_ENABLED")
+    stock_repost_interval_seconds: int = Field(default=600, alias="STOCK_REPOST_INTERVAL_SECONDS")
+    stock_repost_max_per_run: int = Field(default=2, alias="STOCK_REPOST_MAX_PER_RUN")
+
     # 卡券对接（分销卡券）上游服务基址：用于「分销卡券」页面通过上游卡券系统提货
     # 默认不指向任何上游，需要对接时通过环境变量 CARD_DOCK_BASE_URL 显式配置
     card_dock_base_url: str = Field(

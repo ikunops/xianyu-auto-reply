@@ -19,6 +19,7 @@ from common.models.xy_account import XYAccount
 from common.services.item_service import ItemService
 from common.services.publish_address_service import PublishAddressService
 from common.services.publish_log_service import PublishLogService
+from common.services.item_stock_service import apply_stock_after_publish
 from common.services.xianyu_publish_service import publish_single_item
 
 
@@ -75,6 +76,34 @@ async def _sync_account_items_after_publish(
             "sync_total_count": 0,
             "sync_saved_count": 0,
         }
+
+
+async def _load_material_stock(session: AsyncSession, material_id: Any) -> Optional[int]:
+    """回查素材库里的库存。
+
+    单品发布（前端「立即发布」）的请求体不带 stock，只有批量发布带的是素材字典；
+    为了两条链路行为一致，这里按 material_id 回查一次。
+    """
+    if not material_id:
+        return None
+    try:
+        from sqlalchemy import text
+
+        row = (
+            await session.execute(
+                text("SELECT stock FROM xy_product_materials WHERE id = :mid"),
+                {"mid": int(material_id)},
+            )
+        ).first()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"回查素材库存失败 material={material_id}: {exc}")
+        return None
+    if not row or row[0] is None:
+        return None
+    try:
+        return int(row[0])
+    except (TypeError, ValueError):
+        return None
 
 
 async def _bind_material_card_after_publish(
@@ -285,11 +314,32 @@ async def execute_single_publish(
         item_id=result.get("item_id") if publish_success else None,
     )
 
+    # 网页版发布页没有库存入口，鱼小铺账号在发布成功后用卖家接口把库存补上
+    stock_info = {"stock_applied": 0, "stock_message": ""}
+    if publish_success:
+        try:
+            # 单品发布不带 stock：按 material_id 回查素材库，保证两条链路一致
+            stock_value = item_data.get("stock")
+            if not stock_value and material_id:
+                stock_value = await _load_material_stock(session, material_id)
+            stock_info = await apply_stock_after_publish(
+                account_id=account_id,
+                cookie=cookies_str,
+                item_id=result.get("item_id"),
+                stock=stock_value,
+                price=item_data.get("price"),
+                owner_id=user_id,
+            )
+        except Exception as stock_exc:  # noqa: BLE001
+            logger.warning(f"发布后补设库存异常，不影响发布结果: {stock_exc}")
+
     message = result.get("message") or ("商品发布成功" if publish_success else "发布失败")
     if publish_success and sync_info.get("sync_message"):
         message = f"{message}，{sync_info['sync_message']}"
     if publish_success and card_bind_info.get("card_bind_message"):
         message = f"{message}，{card_bind_info['card_bind_message']}"
+    if publish_success and stock_info.get("stock_message"):
+        message = f"{message}，{stock_info['stock_message']}"
 
     return {
         "success": publish_success,
@@ -299,4 +349,5 @@ async def execute_single_publish(
         "log_id": log.id,
         **sync_info,
         **card_bind_info,
+        **stock_info,
     }

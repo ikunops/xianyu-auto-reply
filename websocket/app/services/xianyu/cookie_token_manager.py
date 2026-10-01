@@ -26,6 +26,35 @@ from common.utils.xianyu_utils import trans_cookies, generate_sign
 from common.utils.time_utils import get_beijing_now_naive, random_token_cache_expiry
 
 
+# ==================== 解滑块失败退避 ====================
+# 目的：把「滑块失败 → 上层立刻重试」的风暴挡在起浏览器之前。
+# 实测（2026-09-25）：无退避时 30 分钟尝试 689 次、失败率 59%，每次起 2 个浏览器，
+# 把 4 核机拖到负载 91、内存只剩 111MB，发布页面每一步都超时。
+_CAPTCHA_BACKOFF_BASE = 60.0      # 首次失败后冷却 60 秒
+_CAPTCHA_BACKOFF_MAX = 1800.0     # 冷却上限 30 分钟
+# cookie_id -> (连续失败次数, 下次允许尝试的时间戳)
+_CAPTCHA_BACKOFF: dict = {}
+
+
+def _captcha_backoff_remaining(cookie_id: str) -> float:
+    """还剩多少秒才允许再试（0 = 现在可以试）。"""
+    _fails, until = _CAPTCHA_BACKOFF.get(cookie_id, (0, 0.0))
+    return max(0.0, until - time.time())
+
+
+def _captcha_backoff_on_success(cookie_id: str) -> None:
+    if _CAPTCHA_BACKOFF.pop(cookie_id, None):
+        logger.info(f"【{cookie_id}】滑块验证成功，退避计数已清零")
+
+
+def _captcha_backoff_on_failure(cookie_id: str) -> None:
+    fails, _until = _CAPTCHA_BACKOFF.get(cookie_id, (0, 0.0))
+    fails += 1
+    delay = min(_CAPTCHA_BACKOFF_BASE * (2 ** (fails - 1)), _CAPTCHA_BACKOFF_MAX)
+    _CAPTCHA_BACKOFF[cookie_id] = (fails, time.time() + delay)
+    logger.warning(f"【{cookie_id}】滑块验证连续失败 {fails} 次，退避 {delay:.0f} 秒后再试")
+
+
 class CookieTokenManager:
     """Cookie/Token管理器"""
     
@@ -439,6 +468,28 @@ class CookieTokenManager:
         return None
 
     async def handle_captcha_verification(self, res_json: dict) -> str:
+        """滑块验证入口：包一层失败退避记账。
+
+        连续失败按指数退避（60s → 120s → … → 上限 30 分钟），成功即清零。
+        没有这层时失败会被上层立刻重试：实测 2026-09-25 的 30 分钟内尝试 689 次、
+        失败率 59%，每次起 2 个浏览器，把 4 核机拖到负载 91、内存只剩 111MB。
+        """
+        left = _captcha_backoff_remaining(self.cookie_id)
+        if left > 0:
+            logger.info(f"【{self.cookie_id}】滑块验证退避中，{left:.0f} 秒后再试")
+            return None
+        try:
+            result = await self._handle_captcha_verification_inner(res_json)
+        except Exception:
+            _captcha_backoff_on_failure(self.cookie_id)
+            raise
+        if result:
+            _captcha_backoff_on_success(self.cookie_id)
+        else:
+            _captcha_backoff_on_failure(self.cookie_id)
+        return result
+
+    async def _handle_captcha_verification_inner(self, res_json: dict) -> str:
         """处理滑块验证，返回新的cookies字符串"""
         try:
             import os
