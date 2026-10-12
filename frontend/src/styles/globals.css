@@ -328,6 +328,20 @@
            transition-colors duration-150;
   }
 
+  /* 卡券列表：10 列 + 7 个操作按钮，压缩内边距与按钮间距以适配窄屏 */
+  .cards-table th,
+  .cards-table td {
+    @apply px-2;
+  }
+
+  .cards-table .table-action-btn {
+    @apply p-1;
+  }
+
+  .cards-actions {
+    @apply flex items-center gap-0.5;
+  }
+
   /* ==================== 徽章系统 ==================== */
   .badge-ios {
     @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-medium;

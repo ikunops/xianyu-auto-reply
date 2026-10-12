@@ -350,10 +350,10 @@ export function Cards() {
               <RefreshCw className="w-6 h-6 animate-spin text-blue-500" />
             </div>
           ) : (
-            <table className="table-ios table-fixed min-w-[1080px]">
+            <table className="table-ios table-fixed cards-table min-w-[880px]">
               <thead className="sticky top-0 bg-white dark:bg-slate-800 z-10">
                 <tr>
-                  <th className="w-10 whitespace-nowrap">
+                  <th className="w-[4%] whitespace-nowrap">
                     <button
                       onClick={handleSelectAll}
                       className="p-1 hover:bg-gray-100 rounded"
@@ -366,15 +366,15 @@ export function Cards() {
                       )}
                     </button>
                   </th>
-                  <th className="whitespace-nowrap w-[54px]">ID</th>
-                  <th className="whitespace-nowrap w-[16%]">名称</th>
-                  <th className="whitespace-nowrap w-[58px]">类型</th>
-                  <th className="whitespace-nowrap w-[26%]">内容预览</th>
-                  <th className="whitespace-nowrap w-[104px]">发货设置</th>
-                  <th className="whitespace-nowrap w-[96px]">对接信息</th>
-                  <th className="whitespace-nowrap w-[66px]">状态</th>
-                  <th className="whitespace-nowrap w-[152px]">时间</th>
-                  <th className="whitespace-nowrap w-[150px] sticky right-0 bg-slate-50 dark:bg-slate-800">操作</th>
+                  <th className="whitespace-nowrap w-[4%]">ID</th>
+                  <th className="whitespace-nowrap w-[14%]">名称</th>
+                  <th className="whitespace-nowrap w-[6%]">类型</th>
+                  <th className="whitespace-nowrap w-[13%]">内容预览</th>
+                  <th className="whitespace-nowrap w-[8%]">发货设置</th>
+                  <th className="whitespace-nowrap w-[8%]">对接信息</th>
+                  <th className="whitespace-nowrap w-[6%]">状态</th>
+                  <th className="whitespace-nowrap w-[16%]">时间</th>
+                  <th className="whitespace-nowrap w-[21%] sticky right-0 bg-slate-50 dark:bg-slate-800">操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -538,7 +538,7 @@ export function Cards() {
                         </div>
                       </td>
                       <td className="sticky right-0 bg-white dark:bg-slate-900">
-                        <div className="flex gap-1">
+                        <div className="cards-actions">
                           <button
                             onClick={() => setDetailCard(card)}
                             className="table-action-btn hover:!bg-blue-50"
