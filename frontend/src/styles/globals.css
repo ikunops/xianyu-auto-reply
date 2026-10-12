@@ -339,8 +339,10 @@
   }
 
   .cards-actions {
-    @apply flex items-center gap-0.5;
+    @apply flex items-center gap-0.5 justify-end;
   }
+
+  /* 其余列均为固定宽度，名称/内容预览不设宽度 => 自动平分剩余宽度（操作列因此恒定 200px） */
 
   /* ==================== 徽章系统 ==================== */
   .badge-ios {

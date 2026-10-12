@@ -353,7 +353,7 @@ export function Cards() {
             <table className="table-ios table-fixed cards-table min-w-[880px]">
               <thead className="sticky top-0 bg-white dark:bg-slate-800 z-10">
                 <tr>
-                  <th className="w-[4%] whitespace-nowrap">
+                  <th className="w-[40px] whitespace-nowrap">
                     <button
                       onClick={handleSelectAll}
                       className="p-1 hover:bg-gray-100 rounded"
@@ -366,15 +366,15 @@ export function Cards() {
                       )}
                     </button>
                   </th>
-                  <th className="whitespace-nowrap w-[4%]">ID</th>
-                  <th className="whitespace-nowrap w-[14%]">名称</th>
-                  <th className="whitespace-nowrap w-[6%]">类型</th>
-                  <th className="whitespace-nowrap w-[13%]">内容预览</th>
-                  <th className="whitespace-nowrap w-[8%]">发货设置</th>
-                  <th className="whitespace-nowrap w-[8%]">对接信息</th>
-                  <th className="whitespace-nowrap w-[6%]">状态</th>
-                  <th className="whitespace-nowrap w-[16%]">时间</th>
-                  <th className="whitespace-nowrap w-[21%] sticky right-0 bg-slate-50 dark:bg-slate-800">操作</th>
+                  <th className="whitespace-nowrap w-[40px]">ID</th>
+                  <th className="whitespace-nowrap">名称</th>
+                  <th className="whitespace-nowrap w-[60px]">类型</th>
+                  <th className="whitespace-nowrap">内容预览</th>
+                  <th className="whitespace-nowrap w-[80px]">发货设置</th>
+                  <th className="whitespace-nowrap w-[80px]">对接信息</th>
+                  <th className="whitespace-nowrap w-[60px]">状态</th>
+                  <th className="whitespace-nowrap w-[160px]">时间</th>
+                  <th className="whitespace-nowrap w-[200px] sticky right-0 bg-slate-50 dark:bg-slate-800">操作</th>
                 </tr>
               </thead>
               <tbody>
