@@ -53,6 +53,27 @@ class DaySwitchTaskService:
             # 4. 重置商品擦亮状态
             reset_count = await self._reset_item_polish_status()
             logger.info(f"【{self.task_name}】已重置 {reset_count} 个商品的擦亮状态")
+
+            # 顺带做一次卡券网盘链接验活（每天一次；可用 system_settings 的
+            # link_check.enabled=false 关闭）
+            try:
+                from common.services.link_check_service import is_link_check_enabled, check_cards
+                if await is_link_check_enabled():
+                    summary = await check_cards(only_with_link=True)
+                    logger.info(
+                        f"【{self.task_name}】卡券链接验活完成：共 {summary['total']} 张，"
+                        f"有效 {summary['alive']}、部分失效 {summary['partial']}、"
+                        f"全部失效 {summary['dead']}、无链接 {summary['no_link']}"
+                    )
+                    if summary["partial"] or summary["dead"]:
+                        logger.warning(
+                            f"【{self.task_name}】⚠️ 发现失效链接卡券 {summary['partial'] + summary['dead']} 张，"
+                            f"请到卡券页查看（card_ids={summary.get('bad_card_ids', [])[:20]}）"
+                        )
+                else:
+                    logger.info(f"【{self.task_name}】卡券链接验活已关闭（link_check.enabled=false），跳过")
+            except Exception as _le:  # noqa: BLE001
+                logger.warning(f"【{self.task_name}】卡券链接验活失败（不影响日切换）: {_le}")
             
             # 5. 更新Redis中的平台日
             await self._update_platform_day(current_day)

@@ -1,4 +1,4 @@
-﻿"""卡券服务"""
+"""卡券服务"""
 from __future__ import annotations
 
 import json
@@ -758,6 +758,10 @@ class CardService:
             "type": card.type,
             "description": card.description,
             "enabled": card.enabled,
+            "link_status": getattr(card, "link_status", "unknown") or "unknown",
+            "last_check_at": (
+                card.last_check_at.isoformat() if getattr(card, "last_check_at", None) else None
+            ),
             "delay_seconds": card.delay_seconds,
             "delivery_count": card.delivery_count,
             "price": card.price,
@@ -792,6 +796,10 @@ class CardService:
             "name": card.name,
             "type": card.type,
             "enabled": card.enabled,
+            "link_status": getattr(card, "link_status", "unknown") or "unknown",
+            "last_check_at": (
+                card.last_check_at.isoformat() if getattr(card, "last_check_at", None) else None
+            ),
             "delay_seconds": card.delay_seconds,
             "delivery_count": card.delivery_count,
             "price": card.price,
@@ -832,6 +840,10 @@ class CardService:
             "type": card.type,
             "description": card.description,
             "enabled": card.enabled,
+            "link_status": getattr(card, "link_status", "unknown") or "unknown",
+            "last_check_at": (
+                card.last_check_at.isoformat() if getattr(card, "last_check_at", None) else None
+            ),
             "delay_seconds": card.delay_seconds,
             "delivery_count": card.delivery_count,
             "price": card.price,

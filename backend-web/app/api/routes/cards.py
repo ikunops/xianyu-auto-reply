@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -527,4 +527,48 @@ async def batch_clear_item_relations(
         success=True,
         message=f"已清空 {len(request.item_ids)} 个商品的卡券关联（共删除 {removed} 条关联记录）",
         data={"removed": removed},
+    )
+
+
+@router.post("/{card_id}/check-links", response_model=ApiResponse)
+async def check_card_links(
+    card_id: int,
+    current_user: User = Depends(deps.get_current_active_user),
+    card_service: CardService = Depends(get_card_service),
+) -> ApiResponse:
+    """验活单张卡券里的网盘链接（夸克/百度/UC/阿里云盘/115/123/天翼/迅雷）。"""
+    from common.services.link_check_service import check_one_card
+    user_id, _ = resolve_owner_scope(current_user)
+    result = await check_one_card(user_id=user_id, card_id=card_id)
+    if result is None:
+        return ApiResponse(success=False, message="卡券不存在")
+    return ApiResponse(
+        success=True,
+        message=f"验活完成：{result['status']}（有效 {result['alive_count']} / 失效 {result['dead_count']}）",
+        data=result,
+    )
+
+
+@router.post("/check-links/batch", response_model=ApiResponse)
+async def check_cards_links_batch(
+    payload: dict = Body(default={}),
+    current_user: User = Depends(deps.get_current_active_user),
+) -> ApiResponse:
+    """批量验活卡券网盘链接。
+
+    body 可选：{"card_ids": [1,2,3]}（不传则验活当前用户全部启用中的卡券）；
+    可选 {"only_with_link": true} 跳过不含网盘链接的卡券（默认 true）。
+    """
+    from common.services.link_check_service import check_cards
+    user_id, _ = resolve_owner_scope(current_user)
+    card_ids = payload.get("card_ids") or None
+    only_with_link = bool(payload.get("only_with_link", True))
+    summary = await check_cards(user_id=user_id, card_ids=card_ids, only_with_link=only_with_link)
+    return ApiResponse(
+        success=True,
+        message=(
+            f"批量验活完成：共 {summary['total']} 张，有效 {summary['alive']}、"
+            f"部分失效 {summary['partial']}、全部失效 {summary['dead']}、无链接 {summary['no_link']}"
+        ),
+        data=summary,
     )

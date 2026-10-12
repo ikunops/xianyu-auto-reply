@@ -1,4 +1,4 @@
-﻿"""卡券模型"""
+"""卡券模型"""
 from __future__ import annotations
 
 from datetime import datetime
@@ -44,6 +44,15 @@ class Card(Base):
     is_multi_spec: Mapped[bool] = mapped_column(Boolean, default=False, comment='是否多规格')
     spec_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, comment='规格名称')
     spec_value: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, comment='规格值')
+
+    # 网盘链接验活（仅对含网盘分享链接的卡券有意义）
+    link_status: Mapped[str] = mapped_column(
+        String(16), default='unknown', server_default='unknown',
+        comment='网盘链接验活状态：alive/partial/dead/no_link/unknown',
+    )
+    last_check_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True, comment='最近一次链接验活时间',
+    )
 
     # 根据类型存储不同内容
     api_config: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment='API配置(JSON)')  # JSON 格式

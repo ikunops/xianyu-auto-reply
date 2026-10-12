@@ -5,6 +5,8 @@ const CARD_PREFIX = '/api/v1/cards'
 
 // 卡券类型定义
 export interface CardData {
+  link_status?: string  // 网盘链接验活状态：alive/partial/dead/no_link/unknown
+  last_check_at?: string | null  // 最近一次验活时间
   id?: number
   item_id?: string  // 关联商品ID
   material_id?: number | null  // 关联素材ID
@@ -200,4 +202,14 @@ export const updateItemCards = (
 // 批量清空商品的卡券关联关系（不删除卡券本身）
 export const batchClearItemRelations = (itemIds: string[]): Promise<ApiResponse> => {
   return post(`${CARD_PREFIX}/batch-clear-item-relations`, { item_ids: itemIds })
+}
+
+// 验活单张卡券的网盘链接（夸克/百度/UC/阿里云盘/115/123/天翼/迅雷）
+export const checkCardLinks = (cardId: number | string): Promise<ApiResponse> => {
+  return post(`${CARD_PREFIX}/${cardId}/check-links`, {})
+}
+
+// 批量验活卡券网盘链接（不传 ids 则验活全部启用中的卡券）
+export const checkCardsLinksBatch = (cardIds?: number[]): Promise<ApiResponse> => {
+  return post(`${CARD_PREFIX}/check-links/batch`, cardIds && cardIds.length ? { card_ids: cardIds } : {})
 }

@@ -13,7 +13,7 @@ import {
   Ticket, RefreshCw, Trash2, Search, Power, PowerOff, Image,
   ChevronLeft, ChevronRight, CheckSquare, Square, Edit2, Copy, Eye, Plus, Link
 } from 'lucide-react'
-import { getCards, updateCard, deleteCard, batchDeleteCards, type CardData, type CardPaginatedResult } from '@/api/cards'
+import { getCards, updateCard, deleteCard, batchDeleteCards, checkCardLinks, checkCardsLinksBatch, type CardData, type CardPaginatedResult } from '@/api/cards'
 import { useUIStore } from '@/store/uiStore'
 import { useAuthStore } from '@/store/authStore'
 import { PageLoading } from '@/components/common/Loading'
@@ -41,6 +41,7 @@ const cardTypeBadge: Record<string, string> = {
 export function Cards() {
   const { addToast } = useUIStore()
   const { isAuthenticated, token, _hasHydrated } = useAuthStore()
+  const [batchChecking, setBatchChecking] = useState(false)
   const [loading, setLoading] = useState(true)
   const [cards, setCards] = useState<CardData[]>([])
   const [total, setTotal] = useState(0)
@@ -146,6 +147,40 @@ export function Cards() {
     }
   }
 
+  // 验活单张卡券的网盘链接
+  const handleCheckLinks = async (card: CardData) => {
+    if (!card.id) return
+    try {
+      const result = await checkCardLinks(card.id)
+      const status = (result as unknown as { data?: { status?: string } }).data?.status
+      if (result.success && status === 'alive') {
+        addToast({ type: 'success', message: `卡券 ${card.id} 链接有效` })
+      } else if (result.success && (status === 'dead' || status === 'partial')) {
+        addToast({ type: 'error', message: `卡券 ${card.id} 链接失效，请尽快更换（${result.message || ''}）` })
+      } else {
+        addToast({ type: 'warning', message: result.message || '验活未完成' })
+      }
+      await loadCards()
+    } catch (error) {
+      addToast({ type: 'error', message: '验活失败' })
+    }
+  }
+
+  // 批量验活网盘链接
+  const handleBatchCheckLinks = async () => {
+    try {
+      setBatchChecking(true)
+      const ids = selectedIds.size > 0 ? Array.from(selectedIds).map((v) => Number(v)) : undefined
+      const result = await checkCardsLinksBatch(ids)
+      addToast({ type: result.success ? 'success' : 'error', message: result.message || '批量验活完成' })
+      await loadCards()
+    } catch (error) {
+      addToast({ type: 'error', message: '批量验活失败' })
+    } finally {
+      setBatchChecking(false)
+    }
+  }
+
   // 批量删除
   const handleBatchDelete = async () => {
     try {
@@ -221,6 +256,9 @@ export function Cards() {
           <p className="page-description">管理所有卡券信息</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <button onClick={handleBatchCheckLinks} disabled={batchChecking} className="btn-ios-secondary">
+            {batchChecking ? '验活中...' : selectedIds.size > 0 ? `验活选中（${selectedIds.size}）` : '批量验活链接'}
+          </button>
           {selectedIds.size > 0 && (
             <button onClick={() => setBatchDeleteConfirm(true)} className="btn-ios-danger">
               <Trash2 className="w-4 h-4" />
@@ -371,6 +409,16 @@ export function Cards() {
                           <span className="font-medium text-slate-900 dark:text-slate-100 break-words" title={card.name}>
                             {card.name}
                           </span>
+                          {card.link_status === 'alive' && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 w-fit" title={card.last_check_at ? `最近验活：${card.last_check_at}` : '链接有效'}>
+                              链接有效
+                            </span>
+                          )}
+                          {(card.link_status === 'dead' || card.link_status === 'partial') && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 w-fit" title={card.last_check_at ? `最近验活：${card.last_check_at}，请尽快更换链接` : '链接失效'}>
+                              {card.link_status === 'dead' ? '链接失效' : '部分失效'}
+                            </span>
+                          )}
                           <span
                             className={
                               'text-[11px] truncate block ' +
@@ -518,6 +566,13 @@ export function Cards() {
                             title="管理关联商品"
                           >
                             <Link className="w-4 h-4 text-green-500" />
+                          </button>
+                          <button
+                            onClick={() => handleCheckLinks(card)}
+                            className="table-action-btn hover:!bg-amber-50"
+                            title="验活网盘链接（夸克/百度/UC/阿里云盘/115/123/天翼/迅雷）"
+                          >
+                            <RefreshCw className="w-4 h-4 text-amber-500" />
                           </button>
                           <button
                             onClick={() => handleToggleEnabled(card)}
