@@ -45,6 +45,14 @@ class XYAccount(TimestampMixin, Base):
     metadata_json: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSON, comment="元数据")
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="最后登录时间")
     last_refresh_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="最后刷新时间")
+
+    # 滑块连续失败后的持久化冷却（跨进程共享、前端可见；见 cookie_token_manager）
+    captcha_cooldown_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, comment="滑块连续失败后的冷却截止时间"
+    )
+    captcha_fail_count: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False, server_default="0", comment="滑块连续失败次数"
+    )
     
     # 代理配置字段
     proxy_type: Mapped[str | None] = mapped_column(String(20), default="none", comment="代理类型")

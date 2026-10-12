@@ -82,6 +82,8 @@ export interface AccountDetail extends Account {
   filter_count?: number  // 消息过滤规则数量
   today_reply_count?: number
   owner_username?: string  // 账号所属用户名（管理员查看全量时展示）
+  captcha_cooldown_until?: string | null  // 滑块冷却截止时间（非空且在将来 = 冷却中）
+  captcha_fail_count?: number  // 滑块连续失败次数
 }
 
 // 关键词相关类型
@@ -230,6 +232,9 @@ export interface ThemeFontSettings {
 export type ThemeSettings = ThemeAppearanceSettings & ThemeFontSettings
 
 export interface SystemSettings {
+  'captcha.cooldown_enabled'?: boolean
+  'captcha.cooldown_minutes'?: number | string
+  'captcha.fail_threshold'?: number | string
   ai_model?: string
   ai_api_key?: string
   ai_api_url?: string

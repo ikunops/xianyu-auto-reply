@@ -63,6 +63,8 @@ export const getAccountDetailsPaginated = async (
     value: string
     enabled: boolean
     online?: boolean
+    captcha_cooldown_until?: string | null
+    captcha_fail_count?: number
     auto_confirm: boolean
     scheduled_redelivery?: boolean
     scheduled_rate?: boolean
@@ -139,6 +141,8 @@ export const getAccountDetailsPaginated = async (
       cookie: item.value,
       enabled: item.enabled,
       online: item.online ?? false,
+      captcha_cooldown_until: item.captcha_cooldown_until ?? null,
+      captcha_fail_count: item.captcha_fail_count ?? 0,
       auto_confirm: item.auto_confirm,
       scheduled_redelivery: item.scheduled_redelivery || false,
       scheduled_rate: item.scheduled_rate || false,
@@ -791,4 +795,14 @@ export interface AccountPermissionItem {
 /** 只读检测：哪个账号持有「鱼小铺专业卖家工作台」身份、卖家等级多少 */
 export const checkAccountPermissions = async (): Promise<ApiResponse<AccountPermissionItem[]>> => {
   return post<ApiResponse<AccountPermissionItem[]>>(`${COOKIE_PREFIX}/permission-check`, {})
+}
+
+// 手动验证 Token / 风控状态（单次轻量请求：不解滑块、不重试）
+export const probeAccountToken = (id: string): Promise<ApiResponse> => {
+  return post(`${COOKIE_PREFIX}/probe-token/${id}`, {})
+}
+
+// 手动解除滑块冷却（失败计数清零）
+export const resetCaptchaCooldown = (id: string): Promise<ApiResponse> => {
+  return post(`${COOKIE_PREFIX}/captcha-cooldown/${id}/reset`, {})
 }

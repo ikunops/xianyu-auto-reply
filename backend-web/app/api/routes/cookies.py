@@ -13,6 +13,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, UploadFile, File, Form, status
 from sqlalchemy import func, select, text
 
+from loguru import logger
 from app.api import deps
 from common.models.user import User
 from common.models.xy_account import XYAccount
@@ -367,6 +368,8 @@ async def list_cookie_details_paginated(
             "ai_enabled": read_ai_enabled(ai_settings),
             "owner_id": account.owner_id,
             "owner_username": owner_username_map.get(account.owner_id, ""),
+            "captcha_cooldown_until": safe_isoformat(getattr(account, "captcha_cooldown_until", None)),
+            "captcha_fail_count": int(getattr(account, "captcha_fail_count", 0) or 0),
             "created_at": safe_isoformat(account.created_at),
             "updated_at": safe_isoformat(account.updated_at),
         })
@@ -1169,3 +1172,74 @@ async def check_account_permissions(
         message=f"检测完成：{granted}/{len(results)} 个账号有卖家工作台权限",
         data=results,
     )
+
+
+@router.post("/probe-token/{account_id}", response_model=ApiResponse)
+async def probe_account_token(
+    account_id: str,
+    current_user: User = Depends(deps.get_current_active_user),
+    account_service: AccountService = Depends(deps.get_account_service),
+) -> ApiResponse:
+    """手动验证 Token / 风控状态（单次轻量请求：不解滑块、不重试）。
+
+    用于快速判断"平台惩罚是否结束"：
+      ok             —— Token 正常（或仅需正常轮换）
+      punished       —— 仍在风控惩罚中
+      session_expired—— 会话过期，需要重新登录更新 Cookie
+    """
+    owner_id, _ = resolve_owner_scope(current_user)
+    account = await account_service.get_account_for_user(owner_id, account_id)
+    if not account or not account.cookie:
+        return ApiResponse(success=False, message="账号不存在或未登录（Cookie 为空）")
+
+    from common.services.xianyu_mtop import mtop_call
+    try:
+        res = await mtop_call(
+            account_id=account_id,
+            cookies_str=account.cookie,
+            api="mtop.idle.web.user.page.nav",
+            version="1.0",
+            data={},
+        )
+    except Exception as exc:  # noqa: BLE001
+        return ApiResponse(success=False, message=f"探测异常: {str(exc)[:120]}")
+
+    inner = res.get("res") or {}
+    ret = ((inner.get("ret") or res.get("ret") or ["未知返回"])[0]) or "未知返回"
+    url = str(((inner.get("data") or {}).get("url")) or "")
+
+    if ret.startswith("SUCCESS"):
+        verdict, msg = "ok", "Token 正常，平台未拦截"
+    elif "TOKEN_EXPIR" in ret or "TOKEN_EMPTY" in ret:
+        verdict, msg = "ok", "Token 需轮换（正常现象，系统会自动刷新）"
+    elif "RGV587" in ret or "USER_VALIDATE" in ret or "punish" in url:
+        verdict, msg = "punished", "仍在平台风控惩罚中（需人工登录或继续静默）"
+    elif "SESSION_EXPIRED" in ret:
+        verdict, msg = "session_expired", "会话已过期，需要重新登录并更新 Cookie"
+    else:
+        verdict, msg = "unknown", f"未识别的返回: {ret[:100]}"
+
+    logger.info(f"【{account_id}】手动验证 Token: verdict={verdict} ret={ret[:80]}")
+    return ApiResponse(success=True, message=msg, data={"verdict": verdict, "ret": ret[:200]})
+
+
+@router.post("/captcha-cooldown/{account_id}/reset", response_model=ApiResponse)
+async def reset_captcha_cooldown(
+    account_id: str,
+    current_user: User = Depends(deps.get_current_active_user),
+) -> ApiResponse:
+    """手动解除某账号的滑块冷却（失败计数清零）。"""
+    from common.db.session import async_session_maker
+    async with async_session_maker() as session:
+        result = await session.execute(
+            text(
+                "UPDATE xy_accounts SET captcha_fail_count = 0, captcha_cooldown_until = NULL "
+                "WHERE account_id = :a"
+            ),
+            {"a": account_id},
+        )
+        await session.commit()
+    if not result.rowcount:
+        return ApiResponse(success=False, message="账号不存在")
+    logger.info(f"【{account_id}】手动解除滑块冷却")
+    return ApiResponse(success=True, message="冷却已解除")

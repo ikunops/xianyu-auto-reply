@@ -24,6 +24,7 @@ import { copyToClipboard } from '@/utils/clipboard'
 import { getExeForcedHiddenMenuKeys } from '@/config/navigation'
 import { applyThemeSettings, normalizeThemeAppearanceSettings, normalizeThemeFontSettings } from '@/utils/theme'
 import { DisclaimerSettingsCard } from './DisclaimerSettingsCard'
+import { CaptchaCooldownSettingsCard } from './CaptchaCooldownSettingsCard'
 import { LoginBrandingSettingsCard } from './LoginBrandingSettingsCard'
 import { MenuVisibilitySettings } from './MenuVisibilitySettings'
 import { ThemeAppearanceSettingsCard } from './ThemeAppearanceSettingsCard'
@@ -646,6 +647,8 @@ export function Settings() {
           onSave={handleDisclaimerSave}
         />
       )}
+
+      {user?.is_admin && <CaptchaCooldownSettingsCard settings={settings} />}
 
       {user?.is_admin && (
         <MenuVisibilitySettings

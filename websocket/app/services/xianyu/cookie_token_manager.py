@@ -55,6 +55,118 @@ def _captcha_backoff_on_failure(cookie_id: str) -> None:
     logger.warning(f"【{cookie_id}】滑块验证连续失败 {fails} 次，退避 {delay:.0f} 秒后再试")
 
 
+# ==================== 持久化滑块冷却（跨进程 + 前端可见） ====================
+# 内存退避只挡单进程内的连续重试；这里把状态落库到 xy_accounts：
+#   captcha_fail_count / captcha_cooldown_until
+# 好处：① 调度器/后端/websocket 多进程共享同一冷却；② 重启不丢；③ 前端可展示与手动重置。
+# 开关与时长来自 system_settings：captcha.cooldown_enabled / captcha.cooldown_minutes / captcha.fail_threshold
+_COOLDOWN_SETTINGS_TTL = 60.0
+_cooldown_settings_cache = {"at": 0.0, "enabled": True, "minutes": 60, "threshold": 5}
+
+
+async def _read_cooldown_settings() -> dict:
+    """读取冷却相关系统设置（60 秒缓存，失败时用默认值）。"""
+    now = time.time()
+    if now - _cooldown_settings_cache["at"] < _COOLDOWN_SETTINGS_TTL:
+        return _cooldown_settings_cache
+    try:
+        from sqlalchemy import text as _text
+
+        from common.db.session import async_session_maker as _asm
+        async with _asm() as _s:
+            rows = (await _s.execute(_text(
+                "SELECT `key`, value FROM xy_system_settings WHERE `key` IN "
+                "('captcha.cooldown_enabled','captcha.cooldown_minutes','captcha.fail_threshold')"
+            ))).all()
+        kv = {r[0]: r[1] for r in rows}
+        _cooldown_settings_cache.update({
+            "at": now,
+            "enabled": str(kv.get("captcha.cooldown_enabled", "true")).lower() in ("1", "true", "yes", "on"),
+            "minutes": max(1, int(float(kv.get("captcha.cooldown_minutes", "60") or 60))),
+            "threshold": max(1, int(float(kv.get("captcha.fail_threshold", "5") or 5))),
+        })
+    except Exception as _e:  # noqa: BLE001
+        logger.warning(f"读取滑块冷却设置失败（沿用默认值）: {_e}")
+    return _cooldown_settings_cache
+
+
+async def _cooldown_remaining(cookie_id: str) -> float:
+    """账号持久化冷却的剩余秒数（0 = 现在可以尝试）。"""
+    try:
+        import datetime as _dt
+
+        from sqlalchemy import text as _text
+
+        from common.db.session import async_session_maker as _asm
+        async with _asm() as _s:
+            row = (await _s.execute(_text(
+                "SELECT captcha_cooldown_until FROM xy_accounts WHERE account_id = :a"
+            ), {"a": cookie_id})).first()
+        until = row[0] if row else None
+        if not until:
+            return 0.0
+        if isinstance(until, str):
+            until = _dt.datetime.fromisoformat(until.replace(" ", "T"))
+        now = _dt.datetime.now(until.tzinfo) if until.tzinfo else _dt.datetime.now()
+        return max(0.0, (until - now).total_seconds())
+    except Exception as _e:  # noqa: BLE001
+        logger.warning(f"读取冷却状态失败: {_e}")
+        return 0.0
+
+
+async def _persistent_cooldown_on_failure(cookie_id: str) -> None:
+    """滑块失败：失败数 +1；达到阈值则写冷却截止时间（落库）。"""
+    cfg = await _read_cooldown_settings()
+    if not cfg["enabled"]:
+        return
+    try:
+        import datetime as _dt
+
+        from sqlalchemy import text as _text
+
+        from common.db.session import async_session_maker as _asm
+        async with _asm() as _s:
+            await _s.execute(_text(
+                "UPDATE xy_accounts SET captcha_fail_count = captcha_fail_count + 1 "
+                "WHERE account_id = :a"
+            ), {"a": cookie_id})
+            row = (await _s.execute(_text(
+                "SELECT captcha_fail_count FROM xy_accounts WHERE account_id = :a"
+            ), {"a": cookie_id})).first()
+            fails = int(row[0]) if row and row[0] is not None else 0
+            if fails >= cfg["threshold"]:
+                until = _dt.datetime.now() + _dt.timedelta(minutes=cfg["minutes"])
+                await _s.execute(_text(
+                    "UPDATE xy_accounts SET captcha_cooldown_until = :u WHERE account_id = :a"
+                ), {"u": until, "a": cookie_id})
+            await _s.commit()
+        if fails >= cfg["threshold"]:
+            logger.warning(
+                f"【{cookie_id}】滑块连续失败 {fails} 次（阈值 {cfg['threshold']}），"
+                f"进入冷却 {cfg['minutes']} 分钟，期间不再尝试刷新 token"
+            )
+        else:
+            logger.warning(f"【{cookie_id}】滑块连续失败 {fails}/{cfg['threshold']} 次")
+    except Exception as _e:  # noqa: BLE001
+        logger.warning(f"写入冷却状态失败: {_e}")
+
+
+async def _persistent_cooldown_on_success(cookie_id: str) -> None:
+    """滑块成功：清零失败计数并解除冷却。"""
+    try:
+        from sqlalchemy import text as _text
+
+        from common.db.session import async_session_maker as _asm
+        async with _asm() as _s:
+            await _s.execute(_text(
+                "UPDATE xy_accounts SET captcha_fail_count = 0, captcha_cooldown_until = NULL "
+                "WHERE account_id = :a"
+            ), {"a": cookie_id})
+            await _s.commit()
+    except Exception as _e:  # noqa: BLE001
+        logger.warning(f"清除冷却状态失败: {_e}")
+
+
 class CookieTokenManager:
     """Cookie/Token管理器"""
     
@@ -485,8 +597,10 @@ class CookieTokenManager:
             raise
         if result:
             _captcha_backoff_on_success(self.cookie_id)
+            await _persistent_cooldown_on_success(self.cookie_id)
         else:
             _captcha_backoff_on_failure(self.cookie_id)
+            await _persistent_cooldown_on_failure(self.cookie_id)
         return result
 
     async def _handle_captcha_verification_inner(self, res_json: dict) -> str:
@@ -829,6 +943,11 @@ class CookieTokenManager:
 
     # ==================== Token刷新核心逻辑 ====================
 
+    async def trigger_refresh(self):
+        """手动触发一次 token 刷新（供内部接口 /internal/accounts/{id}/refresh-token 调用）。"""
+        logger.info(f"【{self.cookie_id}】收到手动刷新 token 请求")
+        return await self.refresh_token()
+
     async def refresh_token(self, captcha_retry_count: int = 0, token_expiry_retry_count: int = 0):
         """刷新token
         
@@ -843,6 +962,16 @@ class CookieTokenManager:
             from app.services.captcha.concurrency import should_skip_account
             if should_skip_account(self.cookie_id):
                 logger.warning(f"【{self.cookie_id}】账号已禁用，跳过token刷新")
+                return None
+
+            # 持久化滑块冷却闸门：连续失败达到阈值后，冷却期内不再尝试（跨进程生效）
+            _cd_left = await _cooldown_remaining(self.cookie_id)
+            if _cd_left > 0:
+                logger.info(
+                    f"【{self.cookie_id}】滑块冷却中，剩余 {int(_cd_left // 60)} 分 "
+                    f"{int(_cd_left % 60)} 秒，跳过本次 token 刷新"
+                )
+                self.last_token_refresh_status = "skipped_cooldown"
                 return None
             
             logger.info(f"【{self.cookie_id}】开始刷新token... (滑块验证重试次数: {captcha_retry_count})")

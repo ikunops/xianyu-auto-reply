@@ -49,7 +49,7 @@ const LOGIN_BRANDING_SETTING_KEYS: Array<keyof LoginBrandingSettings> = [
   'login.system_description',
 ]
 
-const BOOLEAN_SYSTEM_SETTING_KEYS = ['registration_enabled', 'show_default_login_info', 'login_captcha_enabled', 'smtp_use_tls', 'smtp_use_ssl', 'runtime.is_exe_mode', 'account.face_verify_timeout_disable', 'proxy.enabled']
+const BOOLEAN_SYSTEM_SETTING_KEYS = ['registration_enabled', 'show_default_login_info', 'login_captcha_enabled', 'smtp_use_tls', 'smtp_use_ssl', 'runtime.is_exe_mode', 'account.face_verify_timeout_disable', 'proxy.enabled', 'captcha.cooldown_enabled']
 
 export const LOGIN_BRANDING_UPDATED_EVENT = 'login-branding-updated'
 

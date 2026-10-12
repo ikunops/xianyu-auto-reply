@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Plus, RefreshCw, QrCode, Key, Edit2, Trash2, Power, PowerOff, X, Loader2, Clock, CheckCircle, MessageSquare, Bot, Globe, Timer, ScanFace, ChevronLeft, ChevronRight, ChevronDown, ImagePlus, Filter, Repeat, MoreHorizontal, PackageCheck, Star, ShieldCheck, Flower2, Eye, EyeOff, Ban, Download, Upload, Send, AlertCircle } from 'lucide-react'
-import { getAccountDetailsPaginated, deleteAccount, updateAccountCookie, updateAccountStatus, updateAccountsStatusBatch, closeAccountsNoticeBatch, clearTokenCacheBatch, updateAccountRemark, addAccount, generateQRLogin, checkQRLoginStatus, passwordLogin, checkPasswordLoginStatus, cancelPasswordLogin, updateAccountAutoConfirm, updateAccountPauseDuration, updateAccountMessageExpireTime, updateAccountReplyDelay, updateAccountLoginInfo, updateAccountScheduledRedelivery, updateAccountScheduledRate, updateAccountAutoPolish, updateAccountConfirmBeforeSend, updateAccountSendBeforeConfirm, updateAccountAutoRedFlower, updateAccountAiReplyBlockOrderedUsers, getAIReplySettings, updateAIReplySettings, testAIConnection, fetchAIModels, AI_PROVIDER_OPTIONS, AI_PROVIDER_DEFAULT_BASE_URLS, getProxyConfig, updateProxyConfig, getFaceVerificationScreenshot, deleteFaceVerificationScreenshot, getConfirmReceiptMessage, updateConfirmReceiptMessage, uploadConfirmReceiptImage, exportAccountsExcel, importAccountsExcel, type AIProviderType, type AIModelOption, type ProxyConfig, type FaceVerificationScreenshot, type AccountFilterParams } from '@/api/accounts'
+import { getAccountDetailsPaginated, deleteAccount, updateAccountCookie, updateAccountStatus, updateAccountsStatusBatch, closeAccountsNoticeBatch, clearTokenCacheBatch, updateAccountRemark, addAccount, generateQRLogin, checkQRLoginStatus, passwordLogin, checkPasswordLoginStatus, cancelPasswordLogin, updateAccountAutoConfirm, updateAccountPauseDuration, updateAccountMessageExpireTime, updateAccountReplyDelay, updateAccountLoginInfo, updateAccountScheduledRedelivery, updateAccountScheduledRate, updateAccountAutoPolish, updateAccountConfirmBeforeSend, updateAccountSendBeforeConfirm, updateAccountAutoRedFlower, updateAccountAiReplyBlockOrderedUsers, getAIReplySettings, updateAIReplySettings, testAIConnection, fetchAIModels, AI_PROVIDER_OPTIONS, AI_PROVIDER_DEFAULT_BASE_URLS, getProxyConfig, updateProxyConfig, getFaceVerificationScreenshot, deleteFaceVerificationScreenshot, getConfirmReceiptMessage, updateConfirmReceiptMessage, uploadConfirmReceiptImage, exportAccountsExcel, importAccountsExcel, type AIProviderType, type AIModelOption, type ProxyConfig, type FaceVerificationScreenshot, type AccountFilterParams, probeAccountToken, resetCaptchaCooldown } from '@/api/accounts'
 import { getDefaultReply, updateDefaultReply, uploadDefaultReplyImage } from '@/api/keywords'
 import { getAutoRateConfig, updateAutoRateConfig } from '@/api/autoRate'
 import { checkAdminDefaultPassword } from '@/api/auth'
@@ -798,6 +798,35 @@ export function Accounts() {
       addToast({ type: 'error', message: errorMessage })
     } finally {
       setManualLoading(false)
+    }
+  }
+
+  // 手动验证 Token / 风控状态（单次轻量请求）
+  const handleProbeToken = async (account: AccountDetail) => {
+    try {
+      const result = await probeAccountToken(account.id)
+      const verdict = (result as unknown as { data?: { verdict?: string } }).data?.verdict
+      if (result.success && verdict === 'ok') {
+        addToast({ type: 'success', message: `【${account.id}】Token 正常，平台未拦截` })
+      } else if (result.success && verdict === 'punished') {
+        addToast({ type: 'error', message: `【${account.id}】仍在平台风控惩罚中：${result.message || ''}` })
+      } else {
+        addToast({ type: 'warning', message: `【${account.id}】${result.message || '探测未通过'}` })
+      }
+      await loadAccounts()
+    } catch (error) {
+      addToast({ type: 'error', message: getApiErrorMessage(error, '验证 Token 失败') })
+    }
+  }
+
+  // 手动解除滑块冷却
+  const handleResetCaptchaCooldown = async (account: AccountDetail) => {
+    try {
+      const result = await resetCaptchaCooldown(account.id)
+      addToast({ type: result.success ? 'success' : 'error', message: result.message || '操作完成' })
+      await loadAccounts()
+    } catch (error) {
+      addToast({ type: 'error', message: getApiErrorMessage(error, '解除冷却失败') })
     }
   }
 
@@ -2381,6 +2410,14 @@ export function Accounts() {
                         <span className={`status-dot ${account.online ? 'status-dot-success' : 'status-dot-danger'}`} />
                         {account.online ? '在线' : '离线'}
                       </span>
+                      {account.captcha_cooldown_until && new Date(account.captcha_cooldown_until).getTime() > Date.now() && (
+                        <span
+                          className="ml-1 inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+                          title={`滑块连续失败 ${account.captcha_fail_count ?? 0} 次，冷却至 ${new Date(account.captcha_cooldown_until).toLocaleString('zh-CN')}；冷却期内不再刷新 Token`}
+                        >
+                          冷却中
+                        </span>
+                      )}
                     </td>
                     <td>
                       <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded ${
@@ -2525,6 +2562,24 @@ export function Accounts() {
                             <><Power className="w-3.5 h-3.5 text-green-500" /><span className="text-green-600 dark:text-green-400">启用</span></>
                           )}
                         </button>
+                        <button
+                          onClick={() => handleProbeToken(account)}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                          title="单次轻量请求验证 Token 与风控状态（不解滑块、不重试）"
+                        >
+                          <ShieldCheck className="w-3.5 h-3.5 text-blue-500" />
+                          <span className="text-blue-600 dark:text-blue-400">验证Token</span>
+                        </button>
+                        {account.captcha_cooldown_until && new Date(account.captcha_cooldown_until).getTime() > Date.now() && (
+                          <button
+                            onClick={() => handleResetCaptchaCooldown(account)}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                            title="解除滑块冷却（清零失败计数）"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5 text-amber-500" />
+                            <span className="text-amber-600 dark:text-amber-400">解除冷却</span>
+                          </button>
+                        )}
                         <button
                           onClick={() => openEditModal(account)}
                           className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
