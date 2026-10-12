@@ -271,6 +271,14 @@ services:
       - scheduler_logs:/app/scheduler/logs
       - static-files:/app/static:ro
       - backup-files:/app/backups
+      # 卡券验活：镜像构建于该功能之前，磁盘 95% 不宜重建 → 依赖与源码均以挂载方式注入
+      # （依赖声明已同步写入 scheduler/pyproject.toml，下次重建镜像即自动生效）
+      - ./vendor/httpx:/usr/local/lib/python3.11/site-packages/httpx:ro
+      - ./vendor/httpx-0.28.1.dist-info:/usr/local/lib/python3.11/site-packages/httpx-0.28.1.dist-info:ro
+      - ./common/services/pan_link_checker.py:/app/common/services/pan_link_checker.py:ro
+      - ./common/services/link_check_service.py:/app/common/services/link_check_service.py:ro
+      - ./common/models/card.py:/app/common/models/card.py:ro
+      - ./scheduler/app/services/scheduler/day_switch_task.py:/app/scheduler/app/services/scheduler/day_switch_task.py:ro
     ports:
       - "${SCHEDULER_PORT:-8091}:8091"
     networks:

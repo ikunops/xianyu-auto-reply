@@ -276,3 +276,6 @@ nuitka-crash-report.xml
 *_backup.py
 docker-compose.yml.bak*
 *.log
+# vendor 目录为运行依赖（httpx），需入库
+!vendor/
+!vendor/**
