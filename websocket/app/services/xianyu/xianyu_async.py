@@ -2608,13 +2608,17 @@ class XianyuAsync:
                                     break
 
                             # 根据失败原因决定重试间隔：
-                            # - 账密登录冷却中（skipped_cooldown）：拉长到 5 分钟。
-                            #   该状态属于"确定性可恢复但短期内无法自愈"（账密错误冷却 5 小时 /
-                            #   上次登录间隔 300 秒未到），每 5 秒重试无意义且会刷屏日志、
-                            #   占用 token API 配额。
-                            # - 其他场景（滑块、网络故障、API 业务失败）：保持 5 秒快速重试，
-                            #   避免延误账号恢复。
-                            sleep_duration = 300 if refresh_status == 'skipped_cooldown' else 5
+                            # - 冷却/滑块类：拉长到 5 分钟。这类状态"确定性可恢复但短期无法自愈"
+                            #   （账密冷却、滑块风控），每 5 秒重试无意义：既刷屏日志、占 token API 配额，
+                            #   又因为持续骚扰而让风控更难解除。实测主号曾每 5 秒空转刷了 10 分钟。
+                            # - 其他场景（网络故障、API 业务失败）：保持 5 秒快速重试，避免延误恢复。
+                            _slow_statuses = (
+                                'skipped_cooldown',
+                                'failed_captcha',
+                                'failed_captcha_exception',
+                                'failed_captcha_max_retries',
+                            )
+                            sleep_duration = 300 if refresh_status in _slow_statuses else 5
                             await self._interruptible_sleep(sleep_duration)
                             continue
                     else:

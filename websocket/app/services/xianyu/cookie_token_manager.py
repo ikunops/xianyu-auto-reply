@@ -60,8 +60,62 @@ def _captcha_backoff_on_failure(cookie_id: str) -> None:
 #   captcha_fail_count / captcha_cooldown_until
 # 好处：① 调度器/后端/websocket 多进程共享同一冷却；② 重启不丢；③ 前端可展示与手动重置。
 # 开关与时长来自 system_settings：captcha.cooldown_enabled / captcha.cooldown_minutes / captcha.fail_threshold
+# 冷却判据：时间窗内失败次数（而非"连续失败"）。
+# 实测成功/失败会交替出现（同一账号一次失败紧接着一次成功），
+# 用"连续失败"计数会被成功清零，永远到不了阈值 → 冷却形同虚设。
+# 改为统计 _COOLDOWN_WINDOW_SEC 秒内的失败总次数。
+_COOLDOWN_WINDOW_SEC = 600.0          # 统计窗口：10 分钟
+_cooldown_fail_times: dict = {}       # {cookie_id: [失败时间戳, ...]}
+
+
+def _record_cooldown_failure(cookie_id: str) -> int:
+    """记一次失败，返回窗口内的失败总次数。"""
+    import time as _t
+    now = _t.time()
+    arr = [x for x in _cooldown_fail_times.get(cookie_id, []) if now - x < _COOLDOWN_WINDOW_SEC]
+    arr.append(now)
+    _cooldown_fail_times[cookie_id] = arr
+    return len(arr)
+
+
+def _window_fail_count(cookie_id: str) -> int:
+    import time as _t
+    now = _t.time()
+    return len([x for x in _cooldown_fail_times.get(cookie_id, []) if now - x < _COOLDOWN_WINDOW_SEC])
+
+
+# 滑块浏览器超时：4 核机 + 高负载时 Chromium 启动就要十几秒，
+# 20 秒会把"还没滑完"的验证直接掐死（实测 56/56 次失败全是超时）；
+# 45 秒仍不够：日志显示主滑块已通过、卡在"二次确认"阶段超时。
+# 优先读环境变量，未配置时按 CPU 核数自适应：<=4 核给 60 秒，否则 40 秒。
+_SLIDER_TIMEOUT_OVERRIDE: float = 0.0
+
+
+def _slider_browser_timeout() -> int:
+    """滑块单次浏览器超时（秒）。环境变量 SLIDER_BROWSER_TIMEOUT 优先。"""
+    global _SLIDER_TIMEOUT_OVERRIDE
+    if _SLIDER_TIMEOUT_OVERRIDE > 0:
+        return int(_SLIDER_TIMEOUT_OVERRIDE)
+    import os as _os
+    raw = (_os.getenv("SLIDER_BROWSER_TIMEOUT") or "").strip()
+    if raw:
+        try:
+            val = float(raw)
+            if val >= 10:
+                _SLIDER_TIMEOUT_OVERRIDE = val
+                return int(val)
+        except ValueError:
+            pass
+    try:
+        cores = _os.cpu_count() or 4
+    except Exception:
+        cores = 4
+    _SLIDER_TIMEOUT_OVERRIDE = 60.0 if cores <= 4 else 40.0
+    return int(_SLIDER_TIMEOUT_OVERRIDE)
+
+
 _COOLDOWN_SETTINGS_TTL = 60.0
-_cooldown_settings_cache = {"at": 0.0, "enabled": True, "minutes": 60, "threshold": 5}
+_cooldown_settings_cache = {"at": 0.0, "enabled": True, "minutes": 180, "threshold": 5}
 
 
 async def _read_cooldown_settings() -> dict:
@@ -82,7 +136,7 @@ async def _read_cooldown_settings() -> dict:
         _cooldown_settings_cache.update({
             "at": now,
             "enabled": str(kv.get("captcha.cooldown_enabled", "true")).lower() in ("1", "true", "yes", "on"),
-            "minutes": max(1, int(float(kv.get("captcha.cooldown_minutes", "60") or 60))),
+            "minutes": max(1, int(float(kv.get("captcha.cooldown_minutes", "180") or 180))),
             "threshold": max(1, int(float(kv.get("captcha.fail_threshold", "5") or 5))),
         })
     except Exception as _e:  # noqa: BLE001
@@ -114,8 +168,12 @@ async def _cooldown_remaining(cookie_id: str) -> float:
         return 0.0
 
 
-async def _persistent_cooldown_on_failure(cookie_id: str) -> None:
-    """滑块失败：失败数 +1；达到阈值则写冷却截止时间（落库）。"""
+async def _persistent_cooldown_on_failure(cookie_id: str, window_fails: int = 0) -> None:
+    """滑块失败：失败数 +1；达到阈值则写冷却截止时间（落库）。
+
+    window_fails: 时间窗内的失败次数（调用方传入）。>0 时以它作为判定依据，
+    避免依赖"连续失败"计数（实测成功会把它清零）。
+    """
     cfg = await _read_cooldown_settings()
     if not cfg["enabled"]:
         return
@@ -134,6 +192,9 @@ async def _persistent_cooldown_on_failure(cookie_id: str) -> None:
                 "SELECT captcha_fail_count FROM xy_accounts WHERE account_id = :a"
             ), {"a": cookie_id})).first()
             fails = int(row[0]) if row and row[0] is not None else 0
+            # 阈值判定用时间窗计数（更贴近"这段时间一直在失败"的直觉）
+            if window_fails > fails:
+                fails = window_fails
             if fails >= cfg["threshold"]:
                 until = _dt.datetime.now() + _dt.timedelta(minutes=cfg["minutes"])
                 await _s.execute(_text(
@@ -670,7 +731,7 @@ class CookieTokenManager:
                     verification_url,
                     True,   # enable_learning
                     False,  # headless（主引擎）
-                    20,     # browser_timeout（主引擎）
+                    _slider_browser_timeout(),  # browser_timeout：按机器负载自适应（默认 60s）
                     self.cookies_str,  # existing_cookies_str，供 DrissionPage 兜底注入
                     self._request_captcha_url_sync,  # url_provider：浏览器就绪后重新取链接，规避过期
                     remote_config,  # 远程过滑块配置 (url, secret) | None
@@ -949,6 +1010,17 @@ class CookieTokenManager:
         return await self.refresh_token()
 
     async def refresh_token(self, captcha_retry_count: int = 0, token_expiry_retry_count: int = 0):
+        # 冷却期检查：窗口内失败达阈值则直接跳过本轮刷新，避免无谓地反复起浏览器。
+        # 关键：必须设置 last_token_refresh_status，否则外层主循环读到的还是上一次的状态，
+        # 会按"5 秒快速重试"处理（实测主号曾因此每 5 秒空转刷屏 10 分钟）。
+        try:
+            _cd_left = await _cooldown_remaining(self.cookie_id)
+            if _cd_left > 0:
+                self.last_token_refresh_status = "skipped_cooldown"
+                logger.info(f"【{self.cookie_id}】冷却中（剩余 {_cd_left/60:.1f} 分钟），跳过本次 token 刷新")
+                return None
+        except Exception:
+            pass
         """刷新token
         
         Args:
@@ -1155,6 +1227,19 @@ class CookieTokenManager:
                                 return await self.refresh_token(captcha_retry_count=captcha_retry_count + 1)
                             else:
                                 logger.error(f"【{self.cookie_id}】滑块验证失败")
+                                # 在此处直接落账：handle_captcha_verification 返回 None 是本函数
+                                # 判定"滑块失败"的确定点；冷却记账放这里最可靠
+                                try:
+                                    _n = _record_cooldown_failure(self.cookie_id)
+                                    await _persistent_cooldown_on_failure(self.cookie_id, window_fails=_n)
+                                    _left = await _cooldown_remaining(self.cookie_id)
+                                    if _left > 0:
+                                        logger.warning(
+                                            f"【{self.cookie_id}】10 分钟内失败 {_n} 次，"
+                                            f"进入冷却 {_left/60:.1f} 分钟"
+                                        )
+                                except Exception as _cd_e:
+                                    logger.warning(f"【{self.cookie_id}】冷却记账异常: {_cd_e}")
                                 notification_sent = True
                                 self.last_token_refresh_status = "failed_captcha"
                                 self.current_token = None
@@ -1162,6 +1247,18 @@ class CookieTokenManager:
                                 return None
                         except Exception as captcha_e:
                             logger.error(f"【{self.cookie_id}】滑块验证处理异常: {self._safe_str(captcha_e)}")
+                            # 异常分支同样是失败：一并落账，避免"每次都异常"绕过冷却
+                            try:
+                                _n = _record_cooldown_failure(self.cookie_id)
+                                await _persistent_cooldown_on_failure(self.cookie_id, window_fails=_n)
+                                _left = await _cooldown_remaining(self.cookie_id)
+                                if _left > 0:
+                                    logger.warning(
+                                        f"【{self.cookie_id}】10 分钟内失败 {_n} 次（异常），"
+                                        f"进入冷却 {_left/60:.1f} 分钟"
+                                    )
+                            except Exception as _cd_e:
+                                logger.warning(f"【{self.cookie_id}】冷却记账异常: {_cd_e}")
                             notification_sent = True
                             self.last_token_refresh_status = "failed_captcha_exception"
                             self.current_token = None

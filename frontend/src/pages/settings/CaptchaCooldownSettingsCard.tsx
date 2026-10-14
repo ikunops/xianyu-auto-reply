@@ -4,7 +4,7 @@
  * 背景：滑块验证连续失败会触发大量重试，进而加深平台风控。这里提供：
  *  - 总开关：是否在连续失败达到阈值后进入冷却
  *  - 失败阈值：连续失败多少次进入冷却
- *  - 冷却时长：冷却多少分钟（冷却期内不再尝试刷新 Token）
+ *  - 冷却时长：冷却多少分钟（冷却期内不再尝试刷新 Token；默认 180）
  * 冷却状态落库在 xy_accounts.captcha_cooldown_until / captcha_fail_count，
  * 账号列表会展示"冷却中"徽标，并可手动解除。
  */
@@ -23,7 +23,7 @@ interface Props {
 export function CaptchaCooldownSettingsCard({ settings }: Props) {
   const { addToast } = useUIStore()
   const [enabled, setEnabled] = useState(true)
-  const [minutes, setMinutes] = useState('60')
+  const [minutes, setMinutes] = useState('180')
   const [threshold, setThreshold] = useState('5')
   const [saving, setSaving] = useState(false)
 
@@ -81,7 +81,7 @@ export function CaptchaCooldownSettingsCard({ settings }: Props) {
       </div>
       <div className="vben-card-body space-y-4">
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          滑块验证连续失败会触发大量重试并加深平台风控。开启后：连续失败达到阈值即进入冷却，
+          滑块验证在 10 分钟内失败达到阈值即触发大量重试并加深平台风控。开启后：达到阈值即进入冷却，
           冷却期内不再尝试刷新 Token；账号列表会显示"冷却中"并可手动解除。
         </p>
         <div className="flex items-center gap-3">
@@ -99,7 +99,7 @@ export function CaptchaCooldownSettingsCard({ settings }: Props) {
           </button>
         </div>
         <div className="flex items-center gap-3">
-          <label className="input-label w-32">连续失败阈值</label>
+          <label className="input-label w-32">失败次数阈值</label>
           <input
             className="input-ios w-28"
             type="number"
@@ -107,7 +107,7 @@ export function CaptchaCooldownSettingsCard({ settings }: Props) {
             value={threshold}
             onChange={(e) => setThreshold(e.target.value)}
           />
-          <span className="text-xs text-slate-500 dark:text-slate-400">次（默认 5）</span>
+          <span className="text-xs text-slate-500 dark:text-slate-400">次 / 10 分钟内（默认 5）</span>
         </div>
         <div className="flex items-center gap-3">
           <label className="input-label w-32">冷却时长</label>
@@ -118,7 +118,7 @@ export function CaptchaCooldownSettingsCard({ settings }: Props) {
             value={minutes}
             onChange={(e) => setMinutes(e.target.value)}
           />
-          <span className="text-xs text-slate-500 dark:text-slate-400">分钟（默认 60）</span>
+          <span className="text-xs text-slate-500 dark:text-slate-400">分钟（默认 180）</span>
         </div>
       </div>
     </div>
