@@ -333,18 +333,25 @@ async def check_card_text(text: str, timeout_each: float = 15.0) -> dict:
         return {"status": "no_link", "links": [], "alive_count": 0, "dead_count": 0}
 
     async def one(u):
-        try:
-            _u, ok = await asyncio.wait_for(check_url(u), timeout=timeout_each)
-            return {"url": u, "alive": bool(ok)}
-        except Exception as exc:  # noqa: BLE001
-            logger.debug(f"验活异常 {u[:60]}: {exc}")
-            return {"url": u, "alive": None}
+        async with _sem:
+            try:
+                _u, ok = await asyncio.wait_for(check_url(u), timeout=timeout_each)
+                return {"url": u, "alive": bool(ok)}
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(f"验活异常 {u[:60]}: {exc}")
+                return {"url": u, "alive": None}
 
+    # 限制单张卡券内的并发：赠品卡券可能有 15+ 条链接，一次性全发会触发
+    # 网盘限流导致大批超时（表现为 alive=null）。串行化到 3 路更稳。
+    _sem = asyncio.Semaphore(3)
     results = await asyncio.gather(*(one(u) for u in links))
     alive = sum(1 for r in results if r["alive"] is True)
     dead = sum(1 for r in results if r["alive"] is False)
     unknown = sum(1 for r in results if r["alive"] is None)
-    if alive == len(results):
+    # 判定顺序很重要：只要探测成功的链接全都有效，就算 alive —— 即便另有若干条
+    # 因超时/限流探测失败（unknown）。这些失败多为并发压力导致，不代表链接已死。
+    # 之前"有 unknown 且无 dead"会落到 unknown，把好卡券误判成状态未知。
+    if alive > 0 and dead == 0:
         status = "alive"
     elif dead == len(results):
         status = "dead"

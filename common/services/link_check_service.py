@@ -21,7 +21,10 @@ from common.services.pan_link_checker import check_card_text, extract_pan_links
 
 # 验活开关与并发（并发过高容易触发网盘限流）
 _SETTING_KEY_ENABLED = "link_check.enabled"
-_MAX_CONCURRENCY = 4
+# 并发上限：卡券级 3 张 × 单卡内 3 条链接 = 最多 9 个并发请求。
+# 网盘（尤其夸克）对短时间内的高并发较敏感，实测 4×N 会让部分请求
+# 超时并误报 unknown。降到 3 更稳。
+_MAX_CONCURRENCY = 3
 
 
 async def is_link_check_enabled() -> bool:
