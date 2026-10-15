@@ -803,6 +803,19 @@ class OrderService:
 
         account_id = account.account_id
         lock_name = f"order_sync:{account_id}"
+
+        # 权限熔断检查：无权限账号窗口期内直接跳过，不产生任何请求。
+        # 必须放在锁获取之前——Redis/锁异常时的降级路径会绕过锁内代码，
+        # 熔断判断放锁内会被那条 except 分支完全绕开。
+        if _is_perm_blocked(account_id):
+            return {
+                'total_fetched': 0,
+                'new_inserted': 0,
+                'updated': 0,
+                'failed': 0,
+                'errors': [],
+            }
+
         try:
             async with distributed_lock(
                 lock_name, expire=180, blocking=True, timeout=8
@@ -818,15 +831,6 @@ class OrderService:
                         'updated': 0,
                         'failed': 0,
                         'errors': ['账号同步锁被占用，已跳过'],
-                    }
-                # 权限熔断检查：无权限账号窗口期内直接跳过，不产生任何请求
-                if _is_perm_blocked(account_id):
-                    return {
-                        'total_fetched': 0,
-                        'new_inserted': 0,
-                        'updated': 0,
-                        'failed': 0,
-                        'errors': [],
                     }
                 return await self._fetch_xianyu_orders_impl(
                     account, query_code, max_pages
