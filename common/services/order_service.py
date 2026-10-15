@@ -2427,6 +2427,113 @@ class OrderStatusChecker:
         
         return False, '订单状态不满足评价条件', order_status
 
+    def _parse_order_detail_response(self, order_id: str, res_json: dict) -> Optional[Dict]:
+        """解析API返回的订单详情数据
+
+        与 OrderService._parse_order_detail_response 逻辑一致；本类实例只有
+        account_id（定时补发货等调度场景没有 cookie_id），日志用 account_id 标识。
+
+        Args:
+            order_id: 订单号
+            res_json: API返回的JSON数据
+
+        Returns:
+            解析后的订单详情字典，解析失败返回 None
+        """
+        try:
+            data = res_json.get('data', {})
+            components = data.get('components', [])
+
+            result = {
+                'item_id': '',
+                'buyer_id': '',
+                'spec_name': '',
+                'spec_value': '',
+                'quantity': '1',
+                'amount': '',
+                'receiver_name': '',
+                'receiver_phone': '',
+                'receiver_address': '',
+                'is_bargain': False,
+            }
+
+            # 从顶层data中提取buyer_id和item_id（作为兜底）
+            top_peer_user_id = data.get('peerUserId', '')
+            top_item_id = data.get('itemId', '')
+            if top_peer_user_id:
+                result['buyer_id'] = str(top_peer_user_id)
+            if top_item_id:
+                result['item_id'] = str(top_item_id)
+
+            for component in components:
+                render_type = component.get('render', '')
+                comp_data = component.get('data', {})
+
+                # 解析订单信息（包含商品信息）
+                if render_type == 'orderInfoVO':
+                    logger.info(f"【{self.account_id}】订单 {order_id} orderInfoVO keys: {list(comp_data.keys())}")
+                    item_info = comp_data.get('itemInfo', {})
+                    logger.info(f"【{self.account_id}】订单 {order_id} itemInfo keys: {list(item_info.keys())}")
+
+                    # 从orderInfoList中提取下单时间
+                    order_info_list = comp_data.get('orderInfoList', [])
+                    if order_info_list:
+                        logger.info(f"【{self.account_id}】订单 {order_id} orderInfoList: {order_info_list}")
+                        for info_item in order_info_list:
+                            label = info_item.get('label', '') or info_item.get('key', '') or info_item.get('name', '')
+                            value = info_item.get('value', '') or info_item.get('text', '')
+                            if '时间' in label or 'time' in label.lower() or 'Time' in label:
+                                result['placed_at_str'] = value
+                                logger.info(f"【{self.account_id}】订单 {order_id} 提取到下单时间: {value}")
+
+                    # 获取商品ID
+                    api_item_id = item_info.get('itemId', '') or comp_data.get('itemId', '')
+                    if api_item_id:
+                        result['item_id'] = str(api_item_id)
+
+                    # 获取买家ID
+                    api_buyer_id = comp_data.get('buyerUserId', '') or comp_data.get('buyerId', '')
+                    if api_buyer_id:
+                        result['buyer_id'] = str(api_buyer_id)
+
+                    # 获取数量
+                    buy_amount = item_info.get('buyAmount', '1')
+                    result['quantity'] = str(buy_amount)
+
+                    # 获取价格
+                    price = item_info.get('price', '')
+                    if price:
+                        result['amount'] = str(price)
+
+                    # 获取规格信息（格式：规格名:规格值）
+                    sku_info = item_info.get('skuInfo', '')
+                    if sku_info and ':' in sku_info:
+                        parts = sku_info.split(':', 1)
+                        result['spec_name'] = parts[0].strip()
+                        result['spec_value'] = parts[1].strip() if len(parts) > 1 else ''
+
+                # 解析收货地址信息
+                elif render_type == 'addressInfoVO':
+                    result['receiver_name'] = comp_data.get('name', '')
+                    result['receiver_phone'] = comp_data.get('phoneNumber', '')
+                    result['receiver_address'] = comp_data.get('address', '')
+
+                # 解析订单状态，检测小刀订单
+                elif render_type == 'orderStatusVO':
+                    status_nodes = comp_data.get('orderStatusNodeList', [])
+                    for node in status_nodes:
+                        node_title = node.get('title', '')
+                        if node_title in ('已刀成', '待刀成'):
+                            result['is_bargain'] = True
+                            break
+
+            logger.info(f"【{self.account_id}】订单 {order_id} 详情解析成功: item_id={result['item_id']}, buyer_id={result['buyer_id']}, 价格={result['amount']}, 规格={result['spec_name']}:{result['spec_value']}, 小刀={result['is_bargain']}")
+            return result
+
+        except Exception as e:
+            logger.error(f"【{self.account_id}】订单 {order_id} 解析API响应失败: {e}")
+            return None
+
 
 # 便捷函数
 async def check_can_ship(order_id: str, cookie_string: str, account_id: str = None) -> Dict:
