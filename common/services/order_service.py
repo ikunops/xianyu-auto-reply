@@ -60,6 +60,44 @@ async def close_goofish_connector() -> None:
         _goofish_connector = None
 
 
+# ---------------- 卖家订单接口权限熔断器 ----------------
+# 背景：部分闲鱼账号未开通卖家工作台/鱼小铺，卖家订单列表接口
+# (mtop.taobao.idle.trade.merchant.sold.get) 对其恒定返回
+# PERMISSION_EXCEPTION::无权限访问。对该类账号的定时轮询（每分钟一次的
+# 待发货同步等）全部注定失败，只会持续制造无效自动化请求（风控敏感）。
+# 熔断策略：命中权限错误即跳过该账号的订单同步，窗口 PERM_CIRCUIT_
+# BREAK_SECONDS（默认 10 分钟）；窗口期满放行一次探测请求，成功则自动
+# 恢复，仍无权限则重新熔断。仅作用于订单列表同步，不影响其他接口。
+PERM_CIRCUIT_BREAK_SECONDS = 1800
+
+_perm_probe: Dict[str, float] = {}
+
+
+def _is_perm_blocked(account_id: str) -> bool:
+    """账号是否处于权限熔断窗口内"""
+    import time
+    until = _perm_probe.get(str(account_id))
+    if until is None:
+        return False
+    if time.time() >= until:
+        # 窗口期满：清除记录，放行本次探测
+        _perm_probe.pop(str(account_id), None)
+        return False
+    return True
+
+
+def _record_perm_block(account_id: str) -> None:
+    """记录权限熔断（窗口期内跳过该账号的订单同步）"""
+    import time
+    _perm_probe[str(account_id)] = time.time() + PERM_CIRCUIT_BREAK_SECONDS
+    logger.warning(
+        f"【权限熔断】账号 {account_id} 卖家订单接口无权限"
+        f"（未开通卖家工作台/鱼小铺的账号会这样），"
+        f"未来 {PERM_CIRCUIT_BREAK_SECONDS // 60} 分钟内跳过其订单同步，"
+        f"窗口期满自动探测恢复"
+    )
+
+
 class OrderService:
     """订单服务 - 读写xy_orders表"""
 
@@ -781,6 +819,15 @@ class OrderService:
                         'failed': 0,
                         'errors': ['账号同步锁被占用，已跳过'],
                     }
+                # 权限熔断检查：无权限账号窗口期内直接跳过，不产生任何请求
+                if _is_perm_blocked(account_id):
+                    return {
+                        'total_fetched': 0,
+                        'new_inserted': 0,
+                        'updated': 0,
+                        'failed': 0,
+                        'errors': [],
+                    }
                 return await self._fetch_xianyu_orders_impl(
                     account, query_code, max_pages
                 )
@@ -1102,6 +1149,9 @@ class OrderService:
                         f"账号 {account_id or '未知账号'} {retry_tag}获取闲鱼订单列表第{page}页失败: "
                         f"ret={ret}, response={res_json}"
                     )
+                    # 权限类错误（未开通卖家工作台/鱼小铺）：熔断该账号的订单同步
+                    if 'PERMISSION_EXCEPTION' in error_msg and account_id:
+                        _record_perm_block(account_id)
                     return {'items': [], 'next_page': False, 'total_count': 0, 'error': error_msg}
                 
                 # 成功时也打印返回值摘要
