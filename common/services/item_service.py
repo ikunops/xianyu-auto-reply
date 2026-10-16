@@ -82,9 +82,10 @@ class ItemService:
             owner_id: 用户ID，None表示查询所有用户（管理员）
             account_id: 账号ID（可选）
         """
+        # inner join：账号已删除的孤儿商品不进前端列表（记录保留在库中，不删数据）
         stmt = (
             select(XYCatalogItem, XYAccount.account_id)
-            .outerjoin(XYAccount, XYCatalogItem.account_pk == XYAccount.id)
+            .join(XYAccount, XYCatalogItem.account_pk == XYAccount.id)
             .order_by(XYCatalogItem.created_at.desc())
         )
         if owner_id is not None:
@@ -130,7 +131,7 @@ class ItemService:
         
         base_stmt = (
             select(XYCatalogItem, XYAccount.account_id)
-            .outerjoin(XYAccount, XYCatalogItem.account_pk == XYAccount.id)
+            .join(XYAccount, XYCatalogItem.account_pk == XYAccount.id)
         )
         
         conditions = []
@@ -188,7 +189,7 @@ class ItemService:
         # 查询总数：仅在按账号筛选时才需要 JOIN 账号表，否则直接基于商品表统计，避免无谓 JOIN
         count_stmt = select(func.count(XYCatalogItem.id)).select_from(XYCatalogItem)
         if account_id:
-            count_stmt = count_stmt.outerjoin(XYAccount, XYCatalogItem.account_pk == XYAccount.id)
+            count_stmt = count_stmt.join(XYAccount, XYCatalogItem.account_pk == XYAccount.id)
         if conditions:
             count_stmt = count_stmt.where(and_(*conditions))
         total_result = await self.session.execute(count_stmt)
