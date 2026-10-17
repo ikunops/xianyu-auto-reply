@@ -912,7 +912,11 @@ class ItemService:
 
     def _serialize_item(self, item: XYCatalogItem, account_id: str, default_reply_info: dict | None = None, has_card: bool = False) -> dict:
         metadata = item.metadata_json or {}
+        # 最新统计（日采任务回写 metadata.stats.value；无则 None）
+        _stats = (metadata.get('stats') or {}).get('value') or {}
+
         return {
+            'stats': _stats or None,
             "id": item.id,
             "cookie_id": account_id,
             "item_id": item.item_id,
