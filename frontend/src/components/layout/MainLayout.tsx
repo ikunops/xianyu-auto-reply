@@ -67,8 +67,8 @@ export function MainLayout() {
       <div className={cn(
         'min-h-screen flex flex-col transition-[margin] duration-200',
         // <640px 无边距，>=640px 根据收缩状态调整（16px / 56px）
-        'ml-0 sm:ml-16',
-        !sidebarCollapsed && 'sm:ml-56'
+        'ml-0 sm:ml-14',
+        !sidebarCollapsed && 'sm:ml-44'
       )}>
         {/* Fixed header area */}
         <div className="sticky top-0 z-40 bg-slate-50 dark:bg-slate-900">

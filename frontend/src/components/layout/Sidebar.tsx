@@ -268,7 +268,7 @@ export function Sidebar({ systemName = '闲鱼管理系统' }: SidebarProps) {
           'transition-transform duration-200 ease-out',
           'border-r border-slate-200 dark:border-slate-700',
           sidebarMobileOpen ? 'translate-x-0' : '-translate-x-full sm:translate-x-0',
-          sidebarMobileOpen ? 'w-72' : sidebarCollapsed ? 'w-16' : 'w-56'
+          sidebarMobileOpen ? 'w-64' : sidebarCollapsed ? 'w-14' : 'w-44'
         )}
       >
         {/* Header */}

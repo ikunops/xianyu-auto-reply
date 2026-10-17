@@ -1168,6 +1168,14 @@ export function Items() {
             <RefreshCw className="w-4 h-4" />
             刷新
           </button>
+                  <button
+                    onClick={() => setItemColumnSettingsOpen(!itemColumnSettingsOpen)}
+                    className="btn-ios-secondary"
+                    title="列显示设置"
+                  >
+                    <Settings className="w-4 h-4" />
+                    列设置
+                  </button>
         </div>
       </div>
 
@@ -2578,6 +2586,55 @@ export function Items() {
         onConfirm={handleBatchClearCardRelations}
         onCancel={() => setBatchClearCardRelationsConfirm(false)}
       />
+      {/* 列显示设置弹窗 */}
+      {itemColumnSettingsOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setItemColumnSettingsOpen(false)}>
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">列显示设置</h3>
+              <button onClick={() => setItemColumnSettingsOpen(false)} className="modal-close">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="modal-body max-h-[60vh] overflow-y-auto">
+              <div className="space-y-2">
+                {itemColumns.map(col => (
+                  <label
+                    key={col.key}
+                    className={`flex items-center justify-between p-3 rounded-lg border transition-colors cursor-pointer ${
+                      col.visible
+                        ? 'border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/20'
+                        : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={col.visible}
+                        onChange={() => !col.fixed && toggleItemColumn(col.key)}
+                        disabled={col.fixed}
+                        className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                      />
+                      <span className={`text-sm ${col.fixed ? 'font-medium' : ''}`}>
+                        {col.label}
+                        {col.fixed && <span className="ml-2 text-xs text-gray-400">(固定)</span>}
+                      </span>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="modal-footer flex justify-between">
+              <button onClick={resetItemColumns} className="btn-ios-secondary">
+                恢复默认
+              </button>
+              <button onClick={() => setItemColumnSettingsOpen(false)} className="btn-ios-primary">
+                确定
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
