@@ -18,7 +18,7 @@ type ItemBooleanFilterKey = 'is_polished' | 'is_multi_spec' | 'multi_quantity_de
 
 
 // ==================== 列显示配置 ====================
-type ItemColumnKey = 'cookie_id' | 'item_id' | 'title' | 'price' | 'polished' | 'multi_spec' | 'multi_qty' | 'card' | 'reply' | 'ai' | 'created' | 'updated'
+type ItemColumnKey = 'cookie_id' | 'item_id' | 'title' | 'price' | 'polished' | 'multi_spec' | 'multi_qty' | 'card' | 'reply' | 'ai' | 'created' | 'updated' | 'browse' | 'want' | 'collect'
 
 interface ItemColumnConfig {
   key: ItemColumnKey
@@ -28,6 +28,9 @@ interface ItemColumnConfig {
 }
 
 const defaultItemColumns: ItemColumnConfig[] = [
+  { key: 'browse', label: '浏览', visible: true },
+  { key: 'want', label: '想要', visible: true },
+  { key: 'collect', label: '收藏', visible: false },
   { key: 'cookie_id', label: '账号ID', visible: true, fixed: true },
   { key: 'item_id', label: '商品ID', visible: true },
   { key: 'title', label: '商品标题', visible: true, fixed: true },
@@ -1411,6 +1414,15 @@ export function Items() {
 {showItemCol('price') && (
                   <th className="min-w-[70px]">价格</th>
                 )}
+{showItemCol('browse') && (
+                  <th className="min-w-[64px] text-center">浏览</th>
+                )}
+{showItemCol('want') && (
+                  <th className="min-w-[64px] text-center">想要</th>
+                )}
+{showItemCol('collect') && (
+                  <th className="min-w-[64px] text-center">收藏</th>
+                )}
 {showItemCol('polished') && (
                   <th className="min-w-[90px] text-center">是否擦亮</th>
                 )}
@@ -1517,6 +1529,21 @@ export function Items() {
 {showItemCol('price') && (
                                         <td className="text-amber-600 font-medium">
                       {item.item_price || (item.price ? `¥${item.price}` : '-')}
+                    </td>
+                  )}
+{showItemCol('browse') && (
+                    <td className="text-center text-gray-600 dark:text-gray-300">
+                      {(item as any).stats?.browseCnt ?? '-'}
+                    </td>
+                  )}
+{showItemCol('want') && (
+                    <td className="text-center text-gray-600 dark:text-gray-300">
+                      {(item as any).stats?.wantCnt ?? '-'}
+                    </td>
+                  )}
+{showItemCol('collect') && (
+                    <td className="text-center text-gray-600 dark:text-gray-300">
+                      {(item as any).stats?.collectCnt ?? '-'}
                     </td>
                   )}
                     <td>
