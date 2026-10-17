@@ -16,8 +16,59 @@ import type { Account, Item } from '@/types'
 type ItemBooleanFilterKey = 'is_polished' | 'is_multi_spec' | 'multi_quantity_delivery'
 
 
+
+// ==================== 列显示配置 ====================
+type ItemColumnKey = 'cookie_id' | 'item_id' | 'title' | 'price' | 'polished' | 'multi_spec' | 'multi_qty' | 'card' | 'reply' | 'ai' | 'created' | 'updated'
+
+interface ItemColumnConfig {
+  key: ItemColumnKey
+  label: string
+  visible: boolean
+  fixed?: boolean
+}
+
+const defaultItemColumns: ItemColumnConfig[] = [
+  { key: 'cookie_id', label: '账号ID', visible: true, fixed: true },
+  { key: 'item_id', label: '商品ID', visible: true },
+  { key: 'title', label: '商品标题', visible: true, fixed: true },
+  { key: 'price', label: '价格', visible: true },
+  { key: 'polished', label: '是否擦亮', visible: true },
+  { key: 'multi_spec', label: '多规格', visible: false },
+  { key: 'multi_qty', label: '多数量发货', visible: false },
+  { key: 'card', label: '关联卡券', visible: true },
+  { key: 'reply', label: '默认回复', visible: false },
+  { key: 'ai', label: 'AI提示词', visible: false },
+  { key: 'created', label: '创建时间', visible: false },
+  { key: 'updated', label: '更新时间', visible: true },
+]
+
 export function Items() {
   const { addToast } = useUIStore()
+
+  // 列显示配置（localStorage 持久化，与订单页同一套交互）
+  const [itemColumns, setItemColumns] = useState<ItemColumnConfig[]>(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem('item-columns-config') || '[]')
+      if (Array.isArray(parsed) && parsed.length === defaultItemColumns.length) {
+        return parsed
+      }
+    } catch { /* ignore */ }
+    return defaultItemColumns
+  })
+  const [itemColumnSettingsOpen, setItemColumnSettingsOpen] = useState(false)
+  const showItemCol = (key: ItemColumnKey) => itemColumns.find(c => c.key === key)?.visible ?? false
+  const toggleItemColumn = (key: ItemColumnKey) => {
+    setItemColumns(prev => {
+      const next = prev.map(c => (c.key === key ? { ...c, visible: !c.visible } : c))
+      localStorage.setItem('item-columns-config', JSON.stringify(next))
+      return next
+    })
+  }
+  const resetItemColumns = () => {
+    setItemColumns(defaultItemColumns)
+    localStorage.setItem('item-columns-config', JSON.stringify(defaultItemColumns))
+    addToast({ type: 'success', message: '已恢复默认列设置' })
+  }
   const navigate = useNavigate()
   const { isAuthenticated, token, _hasHydrated } = useAuthStore()
   const [loading, setLoading] = useState(true)
@@ -1348,25 +1399,49 @@ export function Items() {
                       )}
                     </button>
                   </th>
-                  <th className="min-w-[150px]">账号ID</th>
-                  <th className="min-w-[160px]">商品ID</th>
-                  <th className="min-w-[260px]">商品标题</th>
-                  <th className="min-w-[80px]">价格</th>
-                  <th className="min-w-[100px] text-center">是否擦亮</th>
-                  <th className="min-w-[100px] text-center">多规格</th>
-                  <th className="min-w-[120px] text-center">多数量发货</th>
-                  <th className="min-w-[110px] text-center">关联卡券</th>
-                  <th className="min-w-[110px] text-center">默认回复</th>
-                  <th className="min-w-[110px] text-center">AI提示词</th>
-                  <th className="min-w-[170px]">创建时间</th>
-                  <th className="min-w-[170px]">更新时间</th>
+{showItemCol('cookie_id') && (
+                  <th className="min-w-[130px]">账号ID</th>
+                )},
+{showItemCol('item_id') && (
+                  <th className="min-w-[140px]">商品ID</th>
+                )},
+{showItemCol('title') && (
+                  <th className="min-w-[240px]">商品标题</th>
+                )},
+{showItemCol('price') && (
+                  <th className="min-w-[70px]">价格</th>
+                )},
+{showItemCol('polished') && (
+                  <th className="min-w-[90px] text-center">是否擦亮</th>
+                )},
+{showItemCol('multi_spec') && (
+                  <th className="min-w-[90px] text-center">多规格</th>
+                )},
+{showItemCol('multi_qty') && (
+                  <th className="min-w-[100px] text-center">多数量发货</th>
+                )},
+{showItemCol('card') && (
+                  <th className="min-w-[100px] text-center">关联卡券</th>
+                )},
+{showItemCol('reply') && (
+                  <th className="min-w-[100px] text-center">默认回复</th>
+                )},
+{showItemCol('ai') && (
+                  <th className="min-w-[100px] text-center">AI提示词</th>
+                )},
+{showItemCol('item_id') && (
+                  <th className="min-w-[140px]">商品ID</th>
+                )}0,
+{showItemCol('item_id') && (
+                  <th className="min-w-[140px]">商品ID</th>
+                )}1
                   <th className="sticky right-0 bg-slate-50 dark:bg-slate-800 min-w-[70px]">操作</th>
               </tr>
             </thead>
             <tbody>
               {filteredItems.length === 0 ? (
                 <tr>
-                  <td colSpan={14}>
+                  <td colSpan={2 + itemColumns.filter(c => c.visible).length}>
                     <div className="empty-state py-8">
                       <Package className="empty-state-icon" />
                       <p className="text-gray-500">暂无商品数据</p>
@@ -1376,6 +1451,7 @@ export function Items() {
               ) : (
                 filteredItems.map((item) => (
                   <tr key={item.id} className={selectedIds.has(item.id) ? 'bg-blue-50' : ''}>
+                    {showItemCol('polished') && (
                     <td>
                       <button
                         onClick={() => toggleSelect(item.id)}
@@ -1388,13 +1464,17 @@ export function Items() {
                         )}
                       </button>
                     </td>
-                    <td className="font-medium text-blue-600 dark:text-blue-400">
+                  )}
+{showItemCol('cookie_id') && (
+                                        <td className="font-medium text-blue-600 dark:text-blue-400">
                       {(() => {
                         const account = accounts.find(acc => acc.id === item.cookie_id)
                         return account?.note ? `${item.cookie_id} (${account.note})` : item.cookie_id
                       })()}
                     </td>
-                    <td className="text-xs text-gray-500">
+                  )}
+{showItemCol('item_id') && (
+                                        <td className="text-xs text-gray-500">
                       <a
                         href={`https://www.goofish.com/item?id=${item.item_id}`}
                         target="_blank"
@@ -1405,7 +1485,9 @@ export function Items() {
                         <ExternalLink className="w-3 h-3" />
                       </a>
                     </td>
-                    <td className="max-w-[280px]">
+                  )}
+{showItemCol('title') && (
+                                        <td className="max-w-[280px]">
                       <div className="flex items-start gap-2">
                         {isItemOffline(item) && (
                           <span
@@ -1431,9 +1513,12 @@ export function Items() {
                         </div>
                       )}
                     </td>
-                    <td className="text-amber-600 font-medium">
+                  )}
+{showItemCol('price') && (
+                                        <td className="text-amber-600 font-medium">
                       {item.item_price || (item.price ? `¥${item.price}` : '-')}
                     </td>
+                  )}
                     <td>
                       <span
                         className={`px-2 py-1 rounded text-xs font-medium ${
@@ -1445,6 +1530,7 @@ export function Items() {
                         {item.is_polished ? '已擦亮' : '未擦亮'}
                       </span>
                     </td>
+                    {showItemCol('multi_spec') && (
                     <td>
                       <button
                         onClick={() => handleToggleMultiSpec(item)}
@@ -1458,6 +1544,8 @@ export function Items() {
                         {(item.is_multi_spec || item.has_sku) ? '已开启' : '已关闭'}
                       </button>
                     </td>
+                  )}
+                    {showItemCol('multi_qty') && (
                     <td>
                       <button
                         onClick={() => handleToggleMultiQuantity(item)}
@@ -1471,6 +1559,8 @@ export function Items() {
                         {item.multi_quantity_delivery ? '已开启' : '已关闭'}
                       </button>
                     </td>
+                  )}
+                    {showItemCol('card') && (
                     <td>
                       <button
                         onClick={() => handleOpenDeliveryConfig(item)}
@@ -1485,6 +1575,8 @@ export function Items() {
                         {item.has_card ? '已配置' : '未配置'}
                       </button>
                     </td>
+                  )}
+                    {showItemCol('reply') && (
                     <td>
                       <button
                         onClick={() => handleOpenDefaultReply(item)}
@@ -1501,6 +1593,8 @@ export function Items() {
                         {item.has_default_reply ? (item.default_reply_enabled ? '已配置' : '已关闭') : '未配置'}
                       </button>
                     </td>
+                  )}
+                    {showItemCol('ai') && (
                     <td>
                       <button
                         onClick={() => handleOpenAiPrompt(item)}
@@ -1515,12 +1609,17 @@ export function Items() {
                         {item.has_ai_prompt ? '已配置' : '未配置'}
                       </button>
                     </td>
-                    <td className="text-gray-500 text-xs">
+                  )}
+{showItemCol('created') && (
+                                        <td className="text-gray-500 text-xs">
                       {item.created_at ? new Date(item.created_at).toLocaleString() : '-'}
                     </td>
-                    <td className="text-gray-500 text-xs">
+                  )}
+{showItemCol('updated') && (
+                                        <td className="text-gray-500 text-xs">
                       {item.updated_at ? new Date(item.updated_at).toLocaleString() : '-'}
                     </td>
+                  )}
                     <td className="sticky right-0 bg-white dark:bg-slate-900">
                       <div className="flex gap-1">
                         {isItemOffline(item) && (
