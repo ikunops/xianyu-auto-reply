@@ -1401,40 +1401,40 @@ export function Items() {
                   </th>
 {showItemCol('cookie_id') && (
                   <th className="min-w-[130px]">账号ID</th>
-                )},
+                )}
 {showItemCol('item_id') && (
                   <th className="min-w-[140px]">商品ID</th>
-                )},
+                )}
 {showItemCol('title') && (
                   <th className="min-w-[240px]">商品标题</th>
-                )},
+                )}
 {showItemCol('price') && (
                   <th className="min-w-[70px]">价格</th>
-                )},
+                )}
 {showItemCol('polished') && (
                   <th className="min-w-[90px] text-center">是否擦亮</th>
-                )},
+                )}
 {showItemCol('multi_spec') && (
                   <th className="min-w-[90px] text-center">多规格</th>
-                )},
+                )}
 {showItemCol('multi_qty') && (
                   <th className="min-w-[100px] text-center">多数量发货</th>
-                )},
+                )}
 {showItemCol('card') && (
                   <th className="min-w-[100px] text-center">关联卡券</th>
-                )},
+                )}
 {showItemCol('reply') && (
                   <th className="min-w-[100px] text-center">默认回复</th>
-                )},
+                )}
 {showItemCol('ai') && (
                   <th className="min-w-[100px] text-center">AI提示词</th>
-                )},
-{showItemCol('item_id') && (
-                  <th className="min-w-[140px]">商品ID</th>
-                )}0,
-{showItemCol('item_id') && (
-                  <th className="min-w-[140px]">商品ID</th>
-                )}1
+                )}
+{showItemCol('created') && (
+                  <th className="min-w-[150px]">创建时间</th>
+                )}
+{showItemCol('updated') && (
+                  <th className="min-w-[150px]">更新时间</th>
+                )}
                   <th className="sticky right-0 bg-slate-50 dark:bg-slate-800 min-w-[70px]">操作</th>
               </tr>
             </thead>
