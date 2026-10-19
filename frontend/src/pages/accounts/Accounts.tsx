@@ -114,6 +114,8 @@ export function Accounts() {
   // 更多操作下拉菜单状态
   const [moreMenuAccountId, setMoreMenuAccountId] = useState<string | null>(null)
   const [moreMenuPosition, setMoreMenuPosition] = useState<{ top: number; right: number }>({ top: 0, right: 0 })
+  // 菜单最大高度：按视口剩余空间计算，超出则内部滚动（账号多/屏幕矮时防底部截断）
+  const [moreMenuMaxHeight, setMoreMenuMaxHeight] = useState<number>(420)
 
   // 默认回复管理状态
   const [defaultReplyAccount, setDefaultReplyAccount] = useState<AccountWithKeywordCount | null>(null)
@@ -2605,7 +2607,21 @@ export function Accounts() {
                                 setMoreMenuAccountId(null)
                               } else {
                                 const rect = e.currentTarget.getBoundingClientRect()
-                                setMoreMenuPosition({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
+                                // 菜单约 11 项 × 32px + 内边距；下方空间不足时向上弹出
+                                const MENU_EST_HEIGHT = 380
+                                const GAP = 4
+                                const spaceBelow = window.innerHeight - rect.bottom
+                                const spaceAbove = rect.top
+                                if (spaceBelow >= MENU_EST_HEIGHT || spaceBelow >= spaceAbove) {
+                                  // 向下：限制高度不超过剩余空间
+                                  setMoreMenuPosition({ top: rect.bottom + GAP, right: window.innerWidth - rect.right })
+                                  setMoreMenuMaxHeight(Math.max(160, spaceBelow - GAP - 8))
+                                } else {
+                                  // 向上：贴着按钮上沿展开
+                                  const maxH = Math.max(160, spaceAbove - GAP - 8)
+                                  setMoreMenuPosition({ top: rect.top - GAP - Math.min(MENU_EST_HEIGHT, maxH), right: window.innerWidth - rect.right })
+                                  setMoreMenuMaxHeight(Math.min(MENU_EST_HEIGHT, maxH))
+                                }
                                 setMoreMenuAccountId(account.id)
                               }
                             }}
@@ -2633,8 +2649,8 @@ export function Accounts() {
               onClick={() => setMoreMenuAccountId(null)}
             />
             <div 
-              className="fixed z-50 w-40 bg-white dark:bg-slate-800 rounded-lg shadow-lg ring-1 ring-black/5 dark:ring-white/10 py-1"
-              style={{ top: moreMenuPosition.top, right: moreMenuPosition.right }}
+              className="fixed z-50 w-40 bg-white dark:bg-slate-800 rounded-lg shadow-lg ring-1 ring-black/5 dark:ring-white/10 py-1 overflow-y-auto scrollbar-visible"
+              style={{ top: moreMenuPosition.top, right: moreMenuPosition.right, maxHeight: moreMenuMaxHeight }}
             >
               {(() => {
                 const account = accounts.find(a => a.id === moreMenuAccountId)
