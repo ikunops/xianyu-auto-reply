@@ -1236,7 +1236,7 @@ export function Items() {
       {/* Filters */}
       <div className="vben-card">
         <div className="vben-card-body">
-          <div className="flex flex-wrap items-end gap-3">{/* 筛选区紧凑化 */}
+          <div className="flex flex-wrap items-end gap-2">{/* 筛选区紧凑化 */}
             <div className="input-group w-52">
               <label className="input-label">筛选账号</label>
               <Select
@@ -1273,6 +1273,42 @@ export function Items() {
                       : '点「获取商品」后判断'}
                 </span>
               </div>
+            </div>
+            <div className="input-group w-28">
+              <label className="input-label">是否擦亮</label>
+              <select
+                value={filters.is_polished === null ? '' : String(filters.is_polished)}
+                onChange={(e) => handleFilterChange('is_polished', e.target.value === '' ? null : e.target.value === 'true')}
+                className="input-ios"
+              >
+                <option value="">全部</option>
+                <option value="true">已擦亮</option>
+                <option value="false">未擦亮</option>
+              </select>
+            </div>
+            <div className="input-group w-24">
+              <label className="input-label">多规格</label>
+              <select
+                value={filters.is_multi_spec === null ? '' : String(filters.is_multi_spec)}
+                onChange={(e) => handleFilterChange('is_multi_spec', e.target.value === '' ? null : e.target.value === 'true')}
+                className="input-ios"
+              >
+                <option value="">全部</option>
+                <option value="true">开启</option>
+                <option value="false">关闭</option>
+              </select>
+            </div>
+            <div className="input-group w-24">
+              <label className="input-label">多数量发货</label>
+              <select
+                value={filters.multi_quantity_delivery === null ? '' : String(filters.multi_quantity_delivery)}
+                onChange={(e) => handleFilterChange('multi_quantity_delivery', e.target.value === '' ? null : e.target.value === 'true')}
+                className="input-ios"
+              >
+                <option value="">全部</option>
+                <option value="true">开启</option>
+                <option value="false">关闭</option>
+              </select>
             </div>
             <div className="input-group w-64 shrink-0">
               <label className="input-label">搜索商品</label>
@@ -1315,42 +1351,7 @@ export function Items() {
                 </button>
               </div>
             </div>
-            <div className="input-group w-32">
-              <label className="input-label">是否擦亮</label>
-              <select
-                value={filters.is_polished === null ? '' : String(filters.is_polished)}
-                onChange={(e) => handleFilterChange('is_polished', e.target.value === '' ? null : e.target.value === 'true')}
-                className="input-ios"
-              >
-                <option value="">全部</option>
-                <option value="true">已擦亮</option>
-                <option value="false">未擦亮</option>
-              </select>
-            </div>
-            <div className="input-group w-32">
-              <label className="input-label">多规格</label>
-              <select
-                value={filters.is_multi_spec === null ? '' : String(filters.is_multi_spec)}
-                onChange={(e) => handleFilterChange('is_multi_spec', e.target.value === '' ? null : e.target.value === 'true')}
-                className="input-ios"
-              >
-                <option value="">全部</option>
-                <option value="true">开启</option>
-                <option value="false">关闭</option>
-              </select>
-            </div>
-            <div className="input-group w-32">
-              <label className="input-label">多数量发货</label>
-              <select
-                value={filters.multi_quantity_delivery === null ? '' : String(filters.multi_quantity_delivery)}
-                onChange={(e) => handleFilterChange('multi_quantity_delivery', e.target.value === '' ? null : e.target.value === 'true')}
-                className="input-ios"
-              >
-                <option value="">全部</option>
-                <option value="true">开启</option>
-                <option value="false">关闭</option>
-              </select>
-            </div>
+            {/* 批量操作已移至筛选行末尾 */}
             {/* 查询/重置按钮统一放在筛选行最右侧 */}
             <div className="flex items-end gap-2 ml-auto">
               <button
