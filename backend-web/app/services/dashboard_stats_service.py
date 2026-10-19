@@ -73,8 +73,22 @@ class DashboardStatsService:
 
     @classmethod
     def _merge_trend_rows(cls, rows, amount_map: dict[str, float], count_map: dict[str, int]) -> None:
+        """把 SQL 聚合行并入按 MM-DD 索引的映射。
+
+        MySQL 的 date() 返回 datetime.date（有 strftime），SQLite 返回字符串
+        （'2026-10-19' 或 '2026-10-19 00:00:00'）。必须统一归一成 MM-DD，
+        否则键永远对不上趋势图的日期，曲线全零。
+        """
         for row in rows:
-            date_str = row.order_date.strftime("%m-%d") if hasattr(row.order_date, "strftime") else str(row.order_date)
+            raw = row.order_date
+            if hasattr(raw, "strftime"):
+                date_str = raw.strftime("%m-%d")
+            elif raw is None:
+                continue
+            else:
+                text = str(raw).strip()
+                # 兼容 'YYYY-MM-DD' / 'YYYY-MM-DD HH:MM:SS' / 'YYYY-MM-DDTHH:MM:SS'
+                date_str = text[5:10] if len(text) >= 10 and text[4] == '-' else text
             amount_map[date_str] = round(amount_map.get(date_str, 0) + float(row.daily_amount or 0), 2)
             count_map[date_str] = count_map.get(date_str, 0) + int(row.daily_count or 0)
 
