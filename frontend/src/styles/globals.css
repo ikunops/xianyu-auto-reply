@@ -104,7 +104,7 @@
   }
 
   .vben-card-header {
-    @apply px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between;
+    @apply px-4 py-3 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between;
   }
 
   .vben-card-title {
@@ -112,7 +112,7 @@
   }
 
   .vben-card-body {
-    @apply p-5;
+    @apply p-4;
   }
 
   /* ==================== 开关组件 ==================== */
@@ -170,7 +170,7 @@
   /* ==================== 按钮系统 ==================== */
   .btn-ios {
     @apply inline-flex items-center justify-center gap-2
-           px-4 py-2 rounded-md text-sm font-medium
+           px-3 py-1.5 rounded-md text-sm font-medium
            transition-all duration-150 ease-in-out
            focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-slate-800
            disabled:opacity-60 disabled:cursor-not-allowed disabled:pointer-events-none;
@@ -230,7 +230,8 @@
 
   /* ==================== 输入框系统 ==================== */
   .input-ios {
-    @apply w-full px-3 py-2 text-sm 
+    /* 紧凑尺寸基线：py-2 -> py-1.5，配合文本行高 20px = 32px 高 */
+    @apply w-full px-3 py-1.5 text-sm 
            text-slate-900 dark:text-slate-100
            bg-white dark:bg-slate-800 
            border border-slate-300 dark:border-slate-600 rounded-md
@@ -261,7 +262,7 @@
 
   /* 输入框组 */
   .input-group {
-    @apply space-y-1.5;
+    @apply space-y-1;
   }
 
   .input-label {

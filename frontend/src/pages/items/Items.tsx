@@ -1236,8 +1236,8 @@ export function Items() {
       {/* Filters */}
       <div className="vben-card">
         <div className="vben-card-body">
-          <div className="flex flex-wrap items-end gap-4">
-            <div className="input-group min-w-[200px]">
+          <div className="flex flex-wrap items-end gap-3">{/* 筛选区紧凑化 */}
+            <div className="input-group w-52">
               <label className="input-label">筛选账号</label>
               <Select
                 value={selectedAccount}
@@ -1255,7 +1255,7 @@ export function Items() {
             </div>
             <div className="input-group shrink-0">
               <label className="input-label">在售状态</label>
-              <div className="flex items-center gap-3 h-[38px]">
+              <div className="flex items-center gap-3 h-8">
                 <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200 cursor-pointer select-none">
                   <input
                     type="checkbox"
@@ -1274,7 +1274,7 @@ export function Items() {
                 </span>
               </div>
             </div>
-            <div className="input-group w-72 shrink-0">
+            <div className="input-group w-64 shrink-0">
               <label className="input-label">搜索商品</label>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -1315,7 +1315,7 @@ export function Items() {
                 </button>
               </div>
             </div>
-            <div className="input-group min-w-[140px]">
+            <div className="input-group w-32">
               <label className="input-label">是否擦亮</label>
               <select
                 value={filters.is_polished === null ? '' : String(filters.is_polished)}
@@ -1327,7 +1327,7 @@ export function Items() {
                 <option value="false">未擦亮</option>
               </select>
             </div>
-            <div className="input-group min-w-[140px]">
+            <div className="input-group w-32">
               <label className="input-label">多规格</label>
               <select
                 value={filters.is_multi_spec === null ? '' : String(filters.is_multi_spec)}
@@ -1339,7 +1339,7 @@ export function Items() {
                 <option value="false">关闭</option>
               </select>
             </div>
-            <div className="input-group min-w-[140px]">
+            <div className="input-group w-32">
               <label className="input-label">多数量发货</label>
               <select
                 value={filters.multi_quantity_delivery === null ? '' : String(filters.multi_quantity_delivery)}

@@ -80,7 +80,7 @@ export function MainLayout() {
         </div>
         
         {/* Page content */}
-        <main className="flex-1 p-3 sm:p-4 lg:p-6 overflow-x-hidden">
+        <main className="flex-1 p-3 sm:p-3 lg:p-4 overflow-x-hidden">
           {/* 其他页面通过 Outlet 渲染，ChatNew 活跃时隐藏 */}
           <div style={{ display: isChatNew ? 'none' : undefined }}>
             <Outlet />
