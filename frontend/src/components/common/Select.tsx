@@ -87,7 +87,7 @@ export function Select({
         disabled={disabled}
         className={cn(
           'w-full flex items-center justify-between gap-2',
-          'px-3 py-2 rounded-md text-sm text-left',
+          'px-3 py-1.5 rounded-md text-sm text-left',
           'bg-white dark:bg-slate-700',
           'border border-slate-300 dark:border-slate-600',
           'hover:border-blue-400 dark:hover:border-blue-500',
